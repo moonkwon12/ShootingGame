@@ -1,0 +1,55 @@
+import java.io.PrintWriter;
+
+public class Player {
+    private String id;
+    private int x, y, health;
+    private PrintWriter out;
+
+    public Player(String id, int x, int y, int health) {
+        this.id = id;
+        this.x = x;
+        this.y = y;
+        this.health = health;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public int getX() {
+        return x;
+    }
+
+    public int getY() {
+        return y;
+    }
+
+    public int getHealth() {
+        return health;
+    }
+
+    public PrintWriter getOut() {
+        return out;
+    }
+
+    public void setOut(PrintWriter out) {
+        this.out = out;
+    }
+
+    public void setPosition(int x, int y) {
+        this.x = x;
+        this.y = y;
+    }
+
+    // 추가: 체력을 감소시키는 메서드
+    public void reduceHealth(int damage) {
+        this.health -= damage;
+        if (this.health < 0) {
+            this.health = 0; // 체력은 0 이하로 내려가지 않도록 처리
+        }
+    }
+
+    public void setHealth(int i) {
+        this.health = i;
+    }
+}

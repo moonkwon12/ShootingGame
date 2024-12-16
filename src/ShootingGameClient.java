@@ -13,15 +13,29 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     private String clientId;
 
     private javax.swing.Timer timer;
+
     private Map<String, Player> players = new HashMap<>();
     private List<Missile> missiles = new ArrayList<>();
+    private List<Obstacle> obstacles = new ArrayList<>();
+
     private boolean[] keys = new boolean[256];
     private boolean gameOver = false;
     private String winner = "";
     private boolean spacePressed = false; // 스페이스바 눌림 상태
 
     private Image backgroundImage, player1Image, player2Image, missileImage;
-    private String backgroundImagePath = ""; // 배경 이미지 경로
+
+    private String backgroundImagePath;
+    private String player1ImagePath;
+    private String player2ImagePath;
+
+    private int playerWidth;
+    private int playerHeight;
+    private int missileWidth;
+    private int missileHeight;
+
+    private boolean isReady = false; // 두 명 연결 여부
+    private boolean isGameStarted = false; // 게임 시작 여부
 
     public ShootingGameClient(String serverAddress, int port) {
         try {
@@ -29,19 +43,13 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
             out = new PrintWriter(socket.getOutputStream(), true);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            // 이미지 로드
-            backgroundImage = loadImage("images/back2.png");
-            player1Image = loadImage("images/spaceship5.png");
-            player2Image = loadImage("images/spaceship6.png");
-            missileImage = loadImage("images/missile.png");
-            backgroundImagePath = "images/back2.png";
-
             // 서버 리스너 시작
             new Thread(new ServerListener()).start();
 
             setFocusable(true);
             addKeyListener(this);
-            setPreferredSize(new Dimension(400, 800));
+            setPreferredSize(new Dimension(500, 770));
+
             timer = new javax.swing.Timer(15, this);
             timer.start();
 
@@ -55,10 +63,66 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         return new ImageIcon(path).getImage();
     }
 
+    private Image scaleImage(Image srcImg, int width, int height) {
+        return srcImg.getScaledInstance(width, height, Image.SCALE_SMOOTH);
+    }
+
+    private void parseSettings(String[] tokens) {
+        for (int i = 0; i < tokens.length; i++) {
+            switch (tokens[i]) {
+                case "PLAYER_WIDTH":
+                    playerWidth = Integer.parseInt(tokens[++i]);
+                    break;
+                case "PLAYER_HEIGHT":
+                    playerHeight = Integer.parseInt(tokens[++i]);
+                    break;
+                case "MISSILE_WIDTH":
+                    missileWidth = Integer.parseInt(tokens[++i]);
+                    break;
+                case "MISSILE_HEIGHT":
+                    missileHeight = Integer.parseInt(tokens[++i]);
+                    break;
+                case "BACKGROUND_IMAGE":
+                    backgroundImagePath = tokens[++i];
+                    backgroundImage = loadImage(backgroundImagePath);
+                    break;
+                case "PLAYER1_IMAGE":
+                    player1ImagePath = tokens[++i];
+                    player1Image = scaleImage(loadImage(player1ImagePath), playerWidth, playerHeight);
+                    break;
+                case "PLAYER2_IMAGE":
+                    player2ImagePath = tokens[++i];
+                    player2Image = scaleImage(loadImage(player2ImagePath), playerWidth, playerHeight);
+                    break;
+            }
+        }
+        updateScaledImages(); // 크기 조정된 이미지를 생성
+    }
+
+
+    private void updateScaledImages() {
+        missileImage = scaleImage(loadImage("images/missile.png"), missileWidth, missileHeight);
+    }
+
+
+
     @Override
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
+        setDoubleBuffered(true); // 더블 버퍼링 활성화
         g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
+
+        if (!isGameStarted) {
+            g.setFont(new Font("Arial", Font.BOLD, 30));
+            g.setColor(Color.CYAN);
+
+            if (isReady) {
+                g.drawString("READY! Press START to begin.", 30, (getHeight() / 2) - 20 );
+            } else {
+                g.drawString("Waiting for another player...", 50, (getHeight() / 2) - 20 );
+            }
+            return;
+        }
 
         if (gameOver) {
             g.setFont(new Font("Arial", Font.BOLD, 30));
@@ -73,6 +137,14 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
         Graphics2D g2d = (Graphics2D) g;
 
+
+        synchronized (obstacles) {
+            g.setColor(Color.GRAY); // 장애물 색상
+            for (Obstacle obstacle : obstacles) {
+                g.drawImage(obstacle.getImage(), obstacle.getX(), obstacle.getY(), obstacle.getWidth(), obstacle.getHeight(), this);
+            }
+        }
+
         synchronized (players) {
             for (Player player : players.values()) {
                 int x = player.getX();
@@ -82,16 +154,17 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 // 상대방 플레이어 회전 처리
                 if (!player.getId().equals(clientId)) {
                     double rotationAngle = Math.toRadians(180); // 180도 회전
-                    g2d.rotate(rotationAngle, x + 25, y + 25); // 회전 중심을 이미지의 중심으로 설정
-                    g2d.drawImage(image, x, y, this);
-                    g2d.rotate(-rotationAngle, x + 25, y + 25); // 원상 복구
+                    g2d.rotate(rotationAngle, x + playerWidth / 2.0, y + playerHeight / 2.0);
+                    g2d.drawImage(image, x, y, playerWidth, playerHeight, this);
+                    g2d.rotate(-rotationAngle, x + playerWidth / 2.0, y + playerHeight / 2.0);
                 } else {
-                    g2d.drawImage(image, x, y, this); // 자신의 플레이어는 회전 없이 그리기
+                    g2d.drawImage(image, x, y, playerWidth, playerHeight, this);
                 }
 
                 // 체력 표시
                 g.setFont(new Font("Arial", Font.BOLD, 15));
                 g.setColor(Color.GREEN);
+//                g.drawRect(x, y, playerWidth, playerHeight);
                 g.drawString("Health: " + player.getHealth(), x, y - 10);
             }
         }
@@ -104,11 +177,11 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 // 상대방 미사일 회전 처리
                 if (!missile.getOwnerId().equals(clientId)) {
                     double rotationAngle = Math.toRadians(180); // 180도 회전
-                    g2d.rotate(rotationAngle, x + 10, y + 10); // 미사일 중심 기준으로 회전
-                    g2d.drawImage(missileImage, x, y, this);
-                    g2d.rotate(-rotationAngle, x + 10, y + 10); // 원상 복구
+                    g2d.rotate(rotationAngle, x + missileWidth / 2.0, y + missileHeight / 2.0);
+                    g2d.drawImage(missileImage, x, y, missileWidth, missileHeight, this);
+                    g2d.rotate(-rotationAngle, x + missileWidth / 2.0, y + missileHeight / 2.0);
                 } else {
-                    g2d.drawImage(missileImage, x, y, this); // 자신의 미사일은 회전 없이 그리기
+                    g2d.drawImage(missileImage, x, y, missileWidth, missileHeight, this);
                 }
             }
         }
@@ -121,10 +194,20 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         if (keys[KeyEvent.VK_D]) moveX += 5;
         if (keys[KeyEvent.VK_W]) moveY -= 5;
         if (keys[KeyEvent.VK_S]) moveY += 5;
+
         if (moveX != 0 || moveY != 0) {
             Player player = players.get(clientId);
             if (player != null) {
-                player.setPosition(player.getX() + moveX, player.getY() + moveY);
+                int newX = player.getX() + moveX;
+                int newY = player.getY() + moveY;
+
+                // 화면 경계 제한
+                if (newX < 0) newX = 0; // 왼쪽 경계
+                if (newX > getWidth() - playerWidth) newX = getWidth() - playerWidth; // 오른쪽 경계
+                if (newY < getHeight() / 2) newY = getHeight() / 2; // 위쪽 경계 (중간까지만 이동 가능)
+                if (newY > getHeight() - playerHeight) newY = getHeight() - playerHeight; // 아래쪽 경계
+
+                player.setPosition(newX, newY);
                 out.println("MOVE " + player.getX() + " " + player.getY());
             }
         }
@@ -139,9 +222,15 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 spacePressed = true; // 눌림 상태로 변경
                 Player player = players.get(clientId);
                 if (player != null) {
-                    int missileX = player.getX() + 20;
-                    int missileY = player.getY();
-                    out.println("MISSILE " + missileX + " " + missileY); // 미사일 발사
+                    int missileX = player.getX() + 40;
+                    int missileY = player.getY() - 20;
+
+                    // 미사일 발사 위치가 y축의 절반 이상에서 발사되지 않도록 제한
+                    if (missileY < getHeight() / 2) {
+                        missileY = getHeight() / 2;
+                    }
+
+                    out.println("MISSILE " + missileX + " " + missileY);
                 }
             }
         }
@@ -161,18 +250,16 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
         players.clear();
         missiles.clear();
+        obstacles.clear(); // 장애물 초기화
+
         int screenWidth = getWidth(); // 화면 너비 가져오기
         int screenHeight = getHeight(); // 화면 높이 가져오기
-        int playerWidth = 50; // 플레이어 이미지 너비 (임의값)
-        int playerHeight = 50; // 플레이어 이미지 높이 (임의값)
-        int missileWidth = 20; // 미사일 이미지 너비 (임의값)
-        int missileHeight = 20; // 미사일 이미지 높이 (임의값)
 
         int i = 1;
 
         while (i < tokens.length) {
             if ("PLAYER".equals(tokens[i])) {
-                if (i + 6 >= tokens.length) {
+                if (i + 4 >= tokens.length) {
                     System.err.println("Incomplete PLAYER data: " + Arrays.toString(tokens));
                     break;
                 }
@@ -180,14 +267,6 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 int x = Integer.parseInt(tokens[i + 2]);
                 int y = Integer.parseInt(tokens[i + 3]);
                 int health = Integer.parseInt(tokens[i + 4]);
-                String image = tokens[i + 5];
-                String backgroundImage = tokens[i + 6];
-
-                // 배경 이미지 업데이트
-                if (!this.backgroundImagePath.equals(backgroundImage)) {
-                    this.backgroundImage = loadImage(backgroundImage);
-                    this.backgroundImagePath = backgroundImage;
-                }
 
                 // 상대편 데이터를 X축과 Y축 대칭 처리
                 if (!id.equals(clientId)) {
@@ -195,8 +274,8 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                     y = screenHeight - y - playerHeight; // Y 대칭 변환
                 }
 
-                players.put(id, new Player(id, x, y, health, image));
-                i += 7;
+                players.put(id, new Player(id, x, y, health));
+                i += 5;
             } else if ("MISSILE".equals(tokens[i])) {
                 if (i + 3 >= tokens.length) {
                     System.err.println("Incomplete MISSILE data: " + Arrays.toString(tokens));
@@ -214,6 +293,21 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
                 missiles.add(new Missile(ownerId, x, y));
                 i += 4;
+            } else if ("OBSTACLE".equals(tokens[i])) {
+                int x = Integer.parseInt(tokens[i + 1]);
+                int y = Integer.parseInt(tokens[i + 2]);
+                int width = Integer.parseInt(tokens[i + 3]);
+                int height = Integer.parseInt(tokens[i + 4]);
+                boolean movingRight = Boolean.parseBoolean(tokens[i + 5]);
+
+                // 장애물의 좌표를 X축 및 Y축 대칭 처리
+                if (!"Player1".equals(clientId)) { // Player1 기준으로 대칭 처리
+                    x = screenWidth - x - width; // X 대칭
+                    y = screenHeight - y - height; // Y 대칭
+                }
+
+                obstacles.add(new Obstacle(x, y, width, height, movingRight));
+                i += 6;
             } else {
                 System.err.println("Unknown token: " + tokens[i]);
                 break;
@@ -229,16 +323,38 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 String message;
                 while ((message = in.readLine()) != null) {
                     String[] tokens = message.split(" ");
-                    if ("GAMESTATE".equals(tokens[0])) {
-                        parseGameState(tokens);
-                    } else if ("DEFEAT".equals(tokens[0])) {
-                        handleDefeatMessage(); // 패배 메시지 처리
-                    } else if ("VICTORY".equals(tokens[0])) {
-                        handleVictoryMessage(); // 승리 메시지 처리
-                    } else if ("CONNECTED".equals(tokens[0])) {
-                        clientId = tokens[1];
-                    } else {
-                        System.err.println("Unknown message: " + message);
+                    switch (tokens[0]) {
+                        case "READY":
+                            isReady = true;
+                            repaint();
+                            break;
+                        case "READY_TO_RESTART":
+                            isReady = true; // 다른 클라이언트도 준비 완료
+                            repaint();
+                            break;
+
+                        case "GAMESTART":
+                            isGameStarted = true; // 게임 시작
+                            repaint();
+                            break;
+                        case "SETTINGS":
+                            parseSettings(Arrays.copyOfRange(tokens, 1, tokens.length));
+                            updateScaledImages();
+                            break;
+                        case "GAMESTATE":
+                            parseGameState(tokens);
+                            break;
+                        case "DEFEAT":
+                            handleDefeatMessage();
+                            break;
+                        case "VICTORY":
+                            handleVictoryMessage();
+                            break;
+                        case "CONNECTED":
+                            clientId = tokens[1];
+                            break;
+                        default:
+                            System.err.println("Unknown message: " + message);
                     }
                 }
             } catch (IOException e) {
@@ -247,101 +363,69 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         }
 
         private void handleDefeatMessage() {
+            if (gameOver) return; // 게임 종료 후 추가 처리 방지
             System.out.println("DEFEAT message received for " + clientId);
             gameOver = true;
             winner = "패배";
 
-            // 패배 메시지 모달 표시
             SwingUtilities.invokeLater(() -> {
-                JOptionPane.showMessageDialog(
+                int result = JOptionPane.showConfirmDialog(
                         ShootingGameClient.this,
-                        "게임에서 패배하셨습니다.",
+                        "게임에서 패배하셨습니다. 다시 시작하시겠습니까?",
                         "패배",
+                        JOptionPane.YES_NO_OPTION,
                         JOptionPane.INFORMATION_MESSAGE
                 );
+                if (result == JOptionPane.YES_OPTION) {
+                    resetGame(); // 게임 리셋
+                } else {
+                    System.exit(0); // 창 닫기
+                }
             });
 
             repaint();
         }
 
         private void handleVictoryMessage() {
+            if (gameOver) return; // 게임 종료 후 추가 처리 방지
             System.out.println("VICTORY message received for " + clientId);
             gameOver = true;
             winner = "승리";
 
-            // 승리 메시지 모달 표시
             SwingUtilities.invokeLater(() -> {
-                JOptionPane.showMessageDialog(
+                int result = JOptionPane.showConfirmDialog(
                         ShootingGameClient.this,
-                        "게임에서 승리하셨습니다!",
+                        "게임에서 승리하셨습니다! 다시 시작하시겠습니까?",
                         "승리",
+                        JOptionPane.YES_NO_OPTION,
                         JOptionPane.INFORMATION_MESSAGE
                 );
+                if (result == JOptionPane.YES_OPTION) {
+                    resetGame(); // 게임 리셋
+                } else {
+                    System.exit(0); // 창 닫기
+                }
             });
 
             repaint();
         }
-    }
 
-    private static class Player {
-        private String id;
-        private int x, y, health;
-        private String imagePath; // 이미지 경로를 저장할 필드 추가
+        private void resetGame() {
+            // 클라이언트 데이터 초기화
+            players.clear();
+            missiles.clear();
+            obstacles.clear();
+            Arrays.fill(keys, false);
+            gameOver = false;
+            winner = "";
 
-        public Player(String id, int x, int y, int health, String imagePath) {
-            this.id = id;
-            this.x = x;
-            this.y = y;
-            this.health = health;
-            this.imagePath = imagePath; // 이미지 경로 초기화
-        }
+            // 서버에 재시작 요청
+            out.println("RESTART");
 
-        public String getId() {
-            return id;
-        }
-
-        public int getX() {
-            return x;
-        }
-
-        public int getY() {
-            return y;
-        }
-
-        public int getHealth() {
-            return health;
-        }
-
-        public String getImagePath() {
-            return imagePath;
-        }
-
-        public void setPosition(int x, int y) {
-            this.x = x;
-            this.y = y;
-        }
-    }
-
-    private static class Missile {
-        private String ownerId;
-        private int x, y;
-
-        public Missile(String ownerId, int x, int y) {
-            this.ownerId = ownerId;
-            this.x = x;
-            this.y = y;
-        }
-        public String getOwnerId() {
-            return ownerId;
-        }
-
-
-        public int getX() {
-            return x;
-        }
-
-        public int getY() {
-            return y;
+            // 재시작 대기 메시지
+            isReady = false; // 초기화
+            isGameStarted = false; // 게임 상태를 대기 상태로 변경
+            repaint();
         }
     }
 
@@ -352,6 +436,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         frame.add(client);
         frame.pack();
         frame.setLocationRelativeTo(null);
+        frame.setResizable(false); // 창 크기 변경 불가능
         frame.setVisible(true);
         client.requestFocusInWindow();
     }
