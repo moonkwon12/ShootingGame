@@ -104,88 +104,106 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         missileImage = scaleImage(loadImage("images/missile.png"), missileWidth, missileHeight);
     }
 
-
-
     @Override
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
         setDoubleBuffered(true); // 더블 버퍼링 활성화
+
+        // 배경 그리기
         g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
 
+        // 게임 시작 전 메시지
         if (!isGameStarted) {
             g.setFont(new Font("Arial", Font.BOLD, 30));
             g.setColor(Color.CYAN);
-
             if (isReady) {
-                g.drawString("READY! Press START to begin.", 30, (getHeight() / 2) - 20 );
+                g.drawString("READY! Press START to begin.", 30, (getHeight() / 2) - 20);
             } else {
-                g.drawString("Waiting for another player...", 50, (getHeight() / 2) - 20 );
+                g.drawString("Waiting for another player...", 50, (getHeight() / 2) - 20);
             }
             return;
         }
 
+        // 게임 종료 메시지
         if (gameOver) {
             g.setFont(new Font("Arial", Font.BOLD, 30));
             g.setColor(Color.RED);
-            if (winner.equals("패배")) {
-                g.drawString("패배", 150, getHeight() / 2);
-            } else if (winner.equals("승리")) {
-                g.drawString("승리", 150, getHeight() / 2);
-            }
+            g.drawString(winner.equals("패배") ? "패배" : "승리", 150, getHeight() / 2);
             return;
         }
 
-        Graphics2D g2d = (Graphics2D) g;
-
-
-        synchronized (obstacles) {
-            g.setColor(Color.GRAY); // 장애물 색상
-            for (Obstacle obstacle : obstacles) {
-                g.drawImage(obstacle.getImage(), obstacle.getX(), obstacle.getY(), obstacle.getWidth(), obstacle.getHeight(), this);
-            }
-        }
-
+        // 플레이어 그리기
         synchronized (players) {
             for (Player player : players.values()) {
-                int x = player.getX();
-                int y = player.getY();
-                Image image = "Player1".equals(player.getId()) ? player1Image : player2Image;
-
-                // 상대방 플레이어 회전 처리
-                if (!player.getId().equals(clientId)) {
-                    double rotationAngle = Math.toRadians(180); // 180도 회전
-                    g2d.rotate(rotationAngle, x + playerWidth / 2.0, y + playerHeight / 2.0);
-                    g2d.drawImage(image, x, y, playerWidth, playerHeight, this);
-                    g2d.rotate(-rotationAngle, x + playerWidth / 2.0, y + playerHeight / 2.0);
-                } else {
-                    g2d.drawImage(image, x, y, playerWidth, playerHeight, this);
-                }
-
-                // 체력 표시
-                g.setFont(new Font("Arial", Font.BOLD, 15));
-                g.setColor(Color.GREEN);
-//                g.drawRect(x, y, playerWidth, playerHeight);
-                g.drawString("Health: " + player.getHealth(), x, y - 10);
+                drawPlayer(g, player);
             }
         }
 
+        // 미사일 그리기
         synchronized (missiles) {
             for (Missile missile : missiles) {
-                int x = missile.getX();
-                int y = missile.getY();
+                drawMissile(g, missile);
+            }
+        }
 
-                // 상대방 미사일 회전 처리
-                if (!missile.getOwnerId().equals(clientId)) {
-                    double rotationAngle = Math.toRadians(180); // 180도 회전
-                    g2d.rotate(rotationAngle, x + missileWidth / 2.0, y + missileHeight / 2.0);
-                    g2d.drawImage(missileImage, x, y, missileWidth, missileHeight, this);
-                    g2d.rotate(-rotationAngle, x + missileWidth / 2.0, y + missileHeight / 2.0);
-                } else {
-                    g2d.drawImage(missileImage, x, y, missileWidth, missileHeight, this);
-                }
+        // 장애물 그리기
+        synchronized (obstacles) {
+            for (Obstacle obstacle : obstacles) {
+                drawObstacle(g, obstacle);
             }
         }
     }
+    private void drawPlayer(Graphics g, Player player) {
+        Graphics2D g2d = (Graphics2D) g;
+        int x = player.getX();
+        int y = player.getY();
+        Image image = "Player1".equals(player.getId()) ? player1Image : player2Image;
+
+        // 상대방 플레이어 회전 처리
+        if (!player.getId().equals(clientId)) {
+            double rotationAngle = Math.toRadians(180);
+            g2d.rotate(rotationAngle, x + playerWidth / 2.0, y + playerHeight / 2.0);
+            g2d.drawImage(image, x, y, playerWidth, playerHeight, this);
+            g2d.rotate(-rotationAngle, x + playerWidth / 2.0, y + playerHeight / 2.0);
+        } else {
+            g2d.drawImage(image, x, y, playerWidth, playerHeight, this);
+        }
+
+        // 체력 표시
+        g.setFont(new Font("Arial", Font.BOLD, 15));
+        g.setColor(Color.GREEN);
+        g.drawString("Health: " + player.getHealth(), x, y - 10);
+    }
+    private void drawObstacle(Graphics g, Obstacle obstacle) {
+        g.drawImage(obstacle.getImage(), obstacle.getX(), obstacle.getY(), obstacle.getWidth(), obstacle.getHeight(), this);
+    }
+    private void drawMissile(Graphics g, Missile missile) {
+        Graphics2D g2d = (Graphics2D) g;
+        int x = missile.getX();
+        int y = missile.getY();
+
+        // 상대방 미사일 회전 처리
+        if (!missile.getOwnerId().equals(clientId)) {
+            double rotationAngle = Math.toRadians(180);
+            g2d.rotate(rotationAngle, x + missileWidth / 2.0, y + missileHeight / 2.0);
+            g2d.drawImage(missileImage, x, y, missileWidth, missileHeight, this);
+            g2d.rotate(-rotationAngle, x + missileWidth / 2.0, y + missileHeight / 2.0);
+        } else {
+            g2d.drawImage(missileImage, x, y, missileWidth, missileHeight, this);
+        }
+    }
+    private void updatePlayer(Player player) {
+        repaint(new Rectangle(player.getX(), player.getY(), playerWidth, playerHeight));
+    }
+    private void updateObstacle(Obstacle obstacle) {
+        synchronized (obstacles) {
+            repaint(new Rectangle(obstacle.getX(), obstacle.getY(), obstacle.getWidth(), obstacle.getHeight()));
+        }
+    }
+    private void updateMissile(Missile missile) {
+        repaint(new Rectangle(missile.getX(), missile.getY(), missileWidth, missileHeight));
+    }
+
 
     public void actionPerformed(ActionEvent e) {
         if (gameOver) return; // 게임 종료 시 움직임 제한
@@ -198,20 +216,19 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         if (moveX != 0 || moveY != 0) {
             Player player = players.get(clientId);
             if (player != null) {
-                int newX = player.getX() + moveX;
-                int newY = player.getY() + moveY;
+                int prevX = player.getX();
+                int prevY = player.getY();
 
-                // 화면 경계 제한
-                if (newX < 0) newX = 0; // 왼쪽 경계
-                if (newX > getWidth() - playerWidth) newX = getWidth() - playerWidth; // 오른쪽 경계
-                if (newY < getHeight() / 2) newY = getHeight() / 2; // 위쪽 경계 (중간까지만 이동 가능)
-                if (newY > getHeight() - playerHeight) newY = getHeight() - playerHeight; // 아래쪽 경계
+                player.setPosition(player.getX() + moveX, player.getY() + moveY);
 
-                player.setPosition(newX, newY);
+                // 이전 위치와 새 위치 갱신
+                repaint(new Rectangle(prevX, prevY, playerWidth, playerHeight));
+                updatePlayer(player);
+
+                // 서버에 새로운 위치 전송
                 out.println("MOVE " + player.getX() + " " + player.getY());
             }
         }
-        repaint();
     }
 
     public void keyPressed(KeyEvent e) {
@@ -294,20 +311,22 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 missiles.add(new Missile(ownerId, x, y));
                 i += 4;
             } else if ("OBSTACLE".equals(tokens[i])) {
-                int x = Integer.parseInt(tokens[i + 1]);
-                int y = Integer.parseInt(tokens[i + 2]);
-                int width = Integer.parseInt(tokens[i + 3]);
-                int height = Integer.parseInt(tokens[i + 4]);
-                boolean movingRight = Boolean.parseBoolean(tokens[i + 5]);
+                synchronized (obstacles) {
+                    int x = Integer.parseInt(tokens[i + 1]);
+                    int y = Integer.parseInt(tokens[i + 2]);
+                    int width = Integer.parseInt(tokens[i + 3]);
+                    int height = Integer.parseInt(tokens[i + 4]);
+                    boolean movingRight = Boolean.parseBoolean(tokens[i + 5]);
 
-                // 장애물의 좌표를 X축 및 Y축 대칭 처리
-                if (!"Player1".equals(clientId)) { // Player1 기준으로 대칭 처리
-                    x = screenWidth - x - width; // X 대칭
-                    y = screenHeight - y - height; // Y 대칭
+                    // 장애물의 좌표를 X축 및 Y축 대칭 처리
+                    if (!"Player1".equals(clientId)) { // Player1 기준으로 대칭 처리
+                        x = screenWidth - x - width; // X 대칭
+                        y = screenHeight - y - height; // Y 대칭
+                    }
+
+                    obstacles.add(new Obstacle(x, y, width, height, movingRight));
+                    i += 6;
                 }
-
-                obstacles.add(new Obstacle(x, y, width, height, movingRight));
-                i += 6;
             } else {
                 System.err.println("Unknown token: " + tokens[i]);
                 break;
