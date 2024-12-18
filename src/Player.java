@@ -6,6 +6,7 @@ public class Player {
     private PrintWriter out;
     private MapInstance assignedMap; // 플레이어가 할당된 맵
     private String imagePath; // 플레이어 이미지 경로
+    private boolean isReady = false; // 준비 상태 추가
 
     public Player(String id, int x, int y, int health, String imagePath) {
         this.id = id;
@@ -13,6 +14,13 @@ public class Player {
         this.y = y;
         this.health = health;
         this.imagePath = imagePath;
+    }
+    public boolean isReady() {
+        return isReady;
+    }
+
+    public void setReady(boolean ready) {
+        this.isReady = ready;
     }
 
     public String getId() {

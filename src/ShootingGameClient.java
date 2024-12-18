@@ -5,6 +5,8 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ShootingGameClient extends JPanel implements ActionListener, KeyListener {
     private Socket socket;
@@ -15,9 +17,9 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
     private javax.swing.Timer timer;
 
-    private Map<String, Player> players = new HashMap<>();
-    private List<Missile> missiles = new ArrayList<>();
-    private List<Obstacle> obstacles = new ArrayList<>();
+    private Map<String, Player> players = new ConcurrentHashMap<>();
+    private List<Missile> missiles = new CopyOnWriteArrayList<>();
+    private List<Obstacle> obstacles = new CopyOnWriteArrayList<>();
 
     private boolean[] keys = new boolean[256];
     private boolean gameOver = false;
@@ -42,6 +44,9 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     private JButton startButton;
     private JComboBox<String> mapSelector; // 맵 선택 드롭다운
     private boolean inGame = false; // 게임 중인지 여부
+    private CardLayout cardLayout; // CardLayout 참조 변수 추가
+
+    private boolean timerStarted = false;
 
     public ShootingGameClient(String serverAddress, int port) {
         try {
@@ -78,7 +83,9 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         mainFrame.setSize(500, 770);
         mainFrame.setLocationRelativeTo(null);
         mainFrame.setResizable(false);
-        mainFrame.setLayout(new CardLayout()); // 카드 레이아웃 사용
+
+        cardLayout = new CardLayout(); // CardLayout 초기화
+        mainFrame.setLayout(cardLayout); // CardLayout을 JFrame에 설정
     }
 
     private void showMapSelection() {
@@ -89,16 +96,16 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         mapSelector = new JComboBox<>(new String[]{"Map1", "Map2", "Map3"});
         startButton = new JButton("Start");
 
-        // 시작 버튼 클릭 이벤트
         startButton.addActionListener(e -> {
             String selectedMap = (String) mapSelector.getSelectedItem();
-            out.println("MAPSELECT " + selectedMap); // 서버로 선택한 맵 전달
-            inGame = true;
+            out.println("MAPSELECT " + selectedMap); // 맵 선택 전달
+            out.println("READY"); // 준비 상태 전달
 
             // 화면 전환: 맵 선택 -> 게임 화면
-            CardLayout cl = (CardLayout) mainFrame.getContentPane().getLayout();
-            cl.next(mainFrame.getContentPane());
+            cardLayout.show(mainFrame.getContentPane(), "GAME_SCREEN");
+            inGame = true;
 
+            // 게임 화면에 포커스 설정
             setFocusable(true);
             requestFocusInWindow();
         });
@@ -112,9 +119,16 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         mainFrame.setVisible(true);
     }
 
-    // 이미지 로드 메서드
     private Image loadImage(String path) {
-        return new ImageIcon(path).getImage();
+        try {
+            Image img = new ImageIcon(path).getImage();
+            if (img == null) throw new IOException("Image not found: " + path);
+            return img;
+        } catch (Exception e) {
+            System.err.println("Failed to load image: " + path);
+            e.printStackTrace();
+            return null;
+        }
     }
 
     private Image scaleImage(Image srcImg, int width, int height) {
@@ -139,6 +153,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 case "BACKGROUND_IMAGE":
                     backgroundImagePath = tokens[++i];
                     backgroundImage = loadImage(backgroundImagePath);
+                    System.out.println("Background image set to: " + backgroundImagePath);
                     break;
                 case "PLAYER_IMAGE":
                     playerImagePath = tokens[++i];
@@ -167,50 +182,55 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
         if (!inGame) return; // 게임 시작 전에는 그리지 않음
 
-        // 배경 그리기
-        g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
-
-        // 게임 시작 전 메시지
-        if (!isGameStarted) {
-            g.setFont(new Font("Arial", Font.BOLD, 30));
-            g.setColor(Color.CYAN);
-            if (isReady) {
-                g.drawString("READY! Waiting for the game to start.", 30, (getHeight() / 2) - 20);
-            } else {
-                g.drawString("Waiting for another player...", 50, (getHeight() / 2) - 20);
-            }
-            return;
+        if (backgroundImage != null) {
+            g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
+        } else {
+            System.err.println("Background image is null.");
         }
 
-        // 게임 종료 메시지
-        if (gameOver) {
-            g.setFont(new Font("Arial", Font.BOLD, 30));
-            g.setColor(Color.RED);
-            g.drawString(winner.equals("패배") ? "패배" : "승리", 150, getHeight() / 2);
-            return;
-        }
-
-        // 플레이어 그리기
         synchronized (players) {
+
+            // 게임 시작 전 메시지
+            if (!isGameStarted) {
+                g.setFont(new Font("Arial", Font.BOLD, 30));
+                g.setColor(Color.CYAN);
+                if (isReady) {
+                    g.drawString("READY! Waiting for the game to start.", 30, (getHeight() / 2) - 20);
+                } else {
+                    g.drawString("Waiting for another player...", 50, (getHeight() / 2) - 20);
+                }
+                return;
+            }
+
+            // 게임 종료 메시지
+            if (gameOver) {
+                g.setFont(new Font("Arial", Font.BOLD, 30));
+                g.setColor(Color.RED);
+                g.drawString(winner.equals("패배") ? "패배" : "승리", 150, getHeight() / 2);
+                return;
+            }
+
+            // 플레이어 그리기
             for (Player player : players.values()) {
                 drawPlayer(g, player);
             }
         }
 
-        // 미사일 그리기
         synchronized (missiles) {
+            // 미사일 그리기
             for (Missile missile : missiles) {
                 drawMissile(g, missile);
             }
         }
 
-        // 장애물 그리기
         synchronized (obstacles) {
+            // 장애물 그리기
             for (Obstacle obstacle : obstacles) {
                 drawObstacle(g, obstacle);
             }
         }
     }
+
 
     private void drawPlayer(Graphics g, Player player) {
         int x = player.getX();
@@ -270,37 +290,41 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 obstacle.getWidth(), obstacle.getHeight(), this);
     }
 
-
     public void actionPerformed(ActionEvent e) {
-        if (gameOver || !isGameStarted) return; // 게임이 시작되지 않았거나 종료되었으면 움직임 제한
+        if (gameOver || !isGameStarted) return;
+
+        if (clientId == null) {
+            System.err.println("Error: clientId is null.");
+            return;
+        }
+
+        Player player = players.get(clientId);
+        if (player == null) {
+            System.err.println("Error: Player object is null for clientId: " + clientId);
+            return;
+        }
 
         int dx = 0, dy = 0;
 
         // 방향키 입력에 따른 이동 계산
-        if (keys[KeyEvent.VK_A]) dx -= 5; // 왼쪽
-        if (keys[KeyEvent.VK_D]) dx += 5; // 오른쪽
-        if (keys[KeyEvent.VK_W]) dy -= 5; // 위쪽
-        if (keys[KeyEvent.VK_S]) dy += 5; // 아래쪽
+        if (keys[KeyEvent.VK_A]) dx -= 10;
+        if (keys[KeyEvent.VK_D]) dx += 10;
+        if (keys[KeyEvent.VK_W]) dy -= 10;
+        if (keys[KeyEvent.VK_S]) dy += 10;
 
-        Player player = players.get(clientId);
-        if (player != null) {
-            int newX = player.getX() + dx;
-            int newY = player.getY() + dy;
+        int newX = player.getX() + dx;
+        int newY = player.getY() + dy;
 
-            // 화면 경계 조건
-            if (newX < 0) newX = 0; // 왼쪽 경계
-            if (newX + playerWidth > getWidth()) newX = getWidth() - playerWidth; // 오른쪽 경계
-            if (newY + playerHeight > getHeight()) newY = getHeight() - playerHeight; // 아래쪽 경계
+        // 화면 경계 조건
+        if (newX < 0) newX = 0;
+        if (newX + playerWidth > getWidth()) newX = getWidth() - playerWidth;
+        if (newY + playerHeight > getHeight()) newY = getHeight() - playerHeight;
 
-            // 화면 세로 절반 위로 이동 제한
-            int halfHeight = getHeight() / 2;
-            if (newY < halfHeight) newY = halfHeight; // 중앙선 위로 이동 제한
-
-            // 새로운 위치 설정 및 서버에 전송
-            player.setPosition(newX, newY);
-            out.println("MOVE " + newX + " " + newY);
-            repaint();
-        }
+        // 새로운 위치 설정 및 서버에 전송
+        player.setPosition(newX, newY);
+        System.out.println("Sending MOVE: " + newX + ", " + newY); // 디버깅 출력
+        out.println("MOVE " + newX + " " + newY);
+        repaint();
     }
 
     public void keyPressed(KeyEvent e) {
@@ -368,27 +392,32 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         }
 
         private void handleConnectedMessage(String[] tokens) {
-            // 유효성 검사 추가
             if (tokens.length < 2) {
                 System.err.println("Invalid CONNECTED message: " + Arrays.toString(tokens));
                 return;
             }
 
-            clientId = tokens[1]; // clientId 설정
+            clientId = tokens[1];
+            System.out.println("Connected with clientId: " + clientId);
 
-            if (tokens.length >= 3) {
-                currentMapId = tokens[2]; // mapId 설정 (있는 경우만)
+            // 타이머를 처음으로 시작
+            if (!timerStarted) {
+                timer.start();
+                timerStarted = true;
             }
-
-            System.out.println("Connected with clientId: " + clientId +
-                    (currentMapId != null ? ", mapId: " + currentMapId : ""));
         }
     }
 
-    private void parseGameState(String[] tokens) {
-        players.clear();
-        missiles.clear();
-        obstacles.clear();
+    public void parseGameState(String[] tokens) {
+        synchronized (players) {
+            players.clear();
+        }
+        synchronized (missiles) {
+            missiles.clear();
+        }
+        synchronized (obstacles) {
+            obstacles.clear();
+        }
 
         int i = 1;
         try {
@@ -400,14 +429,18 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                     int health = Integer.parseInt(tokens[i + 4]);
                     String imagePath = tokens[i + 5];
 
-                    players.put(id, new Player(id, x, y, health, imagePath));
+                    synchronized (players) {
+                        players.put(id, new Player(id, x, y, health, imagePath));
+                    }
                     i += 6;
                 } else if (tokens[i].equals("MISSILE")) {
                     String ownerId = tokens[i + 1];
                     int x = Integer.parseInt(tokens[i + 2]);
                     int y = Integer.parseInt(tokens[i + 3]);
 
-                    missiles.add(new Missile(ownerId, x, y));
+                    synchronized (missiles) {
+                        missiles.add(new Missile(ownerId, x, y));
+                    }
                     i += 4;
                 } else if (tokens[i].equals("OBSTACLE")) {
                     int x = Integer.parseInt(tokens[i + 1]);
@@ -416,32 +449,31 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                     int height = Integer.parseInt(tokens[i + 4]);
                     boolean movingRight = Boolean.parseBoolean(tokens[i + 5]);
 
-                    obstacles.add(new Obstacle(x, y, width, height, movingRight));
+                    synchronized (obstacles) {
+                        obstacles.add(new Obstacle(x, y, width, height, movingRight));
+                    }
                     i += 6;
                 } else {
                     System.err.println("Unknown token type: " + tokens[i]);
                     break;
                 }
             }
-        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+        } catch (Exception e) {
             System.err.println("Error parsing GAMESTATE: " + Arrays.toString(tokens));
             e.printStackTrace();
+        }
+
+        if (!timerStarted) {
+            timer.start();
+            timerStarted = true;
         }
 
         repaint();
     }
 
-
-
     public static void main(String[] args) {
         JFrame frame = new JFrame("Shooting Game Client");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         new ShootingGameClient("localhost", 12345); // 클라이언트 초기화
-//        frame.add(client);
-//        frame.pack();
-//        frame.setLocationRelativeTo(null);
-//        frame.setResizable(false);
-//        frame.setVisible(true);
-//        client.requestFocusInWindow();
     }
 }
