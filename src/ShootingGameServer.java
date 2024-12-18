@@ -70,12 +70,14 @@ class MapInstance {
     private String mapId;
     private Map<String, Player> players = new ConcurrentHashMap<>();
     private List<Missile> missiles = Collections.synchronizedList(new ArrayList<>());
-    private ObstacleManager obstacleManager = new ObstacleManager(ShootingGameServer.SERVER_WIDTH, ShootingGameServer.SERVER_HEIGHT);
+    private ObstacleManager obstacleManager;
 
     private boolean gameStarted = false; // 게임 시작 여부
 
     public MapInstance(String mapId) {
         this.mapId = mapId;
+        this.obstacleManager = new ObstacleManager(ShootingGameServer.SERVER_WIDTH, ShootingGameServer.SERVER_HEIGHT);
+        startObstacleThreads(); // 장애물 스레드 시작
     }
 
     public String getMapId() {
@@ -132,10 +134,6 @@ class MapInstance {
     }
 
     public void checkCollisions() {
-        int serverWidth = ShootingGameServer.SERVER_WIDTH;
-        int serverHeight = ShootingGameServer.SERVER_HEIGHT;
-
-        // 미사일과 플레이어 충돌 확인
         List<Missile> toRemoveMissiles = new ArrayList<>();
         synchronized (missiles) {
             for (Missile missile : missiles) {
@@ -148,10 +146,10 @@ class MapInstance {
                     int playerX = player.getX();
                     int playerY = player.getY();
 
-                    // 미사일 소유자가 상대 플레이어의 경우, 대칭 좌표 계산
+                    // 상대 플레이어의 좌표 대칭 처리
                     if (!missile.getOwnerId().equals(player.getId())) {
-                        playerX = serverWidth - playerX - ShootingGameServer.PLAYER_WIDTH;
-                        playerY = serverHeight - playerY - ShootingGameServer.PLAYER_HEIGHT;
+                        playerX = ShootingGameServer.SERVER_WIDTH - playerX - ShootingGameServer.PLAYER_WIDTH;
+                        playerY = ShootingGameServer.SERVER_HEIGHT - playerY - ShootingGameServer.PLAYER_HEIGHT;
                     }
 
                     // 충돌 판정
@@ -166,17 +164,27 @@ class MapInstance {
             missiles.removeAll(toRemoveMissiles); // 충돌한 미사일 제거
         }
 
-        // 장애물 충돌 확인 (기존 코드 유지)
+        // 장애물과 플레이어 충돌 확인
         List<Obstacle> toRemoveObstacles = new ArrayList<>();
         for (Obstacle obstacle : obstacleManager.getObstacles()) {
             for (Player player : players.values()) {
-                if (player.getX() < obstacle.getX() + obstacle.getWidth() &&
-                        player.getX() + ShootingGameServer.PLAYER_WIDTH > obstacle.getX() &&
-                        player.getY() < obstacle.getY() + obstacle.getHeight() &&
-                        player.getY() + ShootingGameServer.PLAYER_HEIGHT > obstacle.getY()) {
-                    player.reduceHealth(10);
-                    toRemoveObstacles.add(obstacle);
-                    checkGameOver(player);
+                int obstacleX = obstacle.getX();
+                int obstacleY = obstacle.getY();
+
+                // 플레이어 2의 경우 장애물 대칭 좌표를 사용
+                if (!player.getId().equals(players.keySet().iterator().next())) {
+                    obstacleX = ShootingGameServer.SERVER_WIDTH - obstacleX - obstacle.getWidth();
+                    obstacleY = ShootingGameServer.SERVER_HEIGHT - obstacleY - obstacle.getHeight();
+                }
+
+                // 충돌 판정
+                if (player.getX() < obstacleX + obstacle.getWidth() &&
+                        player.getX() + ShootingGameServer.PLAYER_WIDTH > obstacleX &&
+                        player.getY() < obstacleY + obstacle.getHeight() &&
+                        player.getY() + ShootingGameServer.PLAYER_HEIGHT > obstacleY) {
+                    player.reduceHealth(10); // 체력 감소
+                    toRemoveObstacles.add(obstacle); // 충돌한 장애물 제거
+                    checkGameOver(player); // 게임 종료 여부 확인
                 }
             }
         }
@@ -198,37 +206,76 @@ class MapInstance {
     }
 
     public void broadcastGameState() {
-        if (!gameStarted) return; // 게임 시작 전에는 상태를 전송하지 않음
+        if (!gameStarted) return;
 
-        StringBuilder state = new StringBuilder("GAMESTATE ");
         for (Player player : players.values()) {
-            state.append("PLAYER ").append(player.getId()).append(" ")
-                    .append(player.getX()).append(" ")
-                    .append(player.getY()).append(" ")
-                    .append(player.getHealth()).append(" ");
-        }
-        synchronized (missiles) {
-            for (Missile missile : missiles) {
-                state.append("MISSILE ").append(missile.getOwnerId()).append(" ")
-                        .append(missile.getX()).append(" ")
-                        .append(missile.getY()).append(" ");
+            StringBuilder state = new StringBuilder("GAMESTATE ");
+
+            // 플레이어 데이터
+            for (Player otherPlayer : players.values()) {
+                int x = otherPlayer.getX();
+                int y = otherPlayer.getY();
+
+                // 현재 플레이어 기준으로 상대 플레이어 좌표 대칭
+                if (!player.getId().equals(otherPlayer.getId())) {
+                    x = ShootingGameServer.SERVER_WIDTH - x - ShootingGameServer.PLAYER_WIDTH;
+                    y = ShootingGameServer.SERVER_HEIGHT - y - ShootingGameServer.PLAYER_HEIGHT;
+                }
+
+                state.append("PLAYER ").append(otherPlayer.getId()).append(" ")
+                        .append(x).append(" ").append(y).append(" ")
+                        .append(otherPlayer.getHealth()).append(" ")
+                        .append(otherPlayer.getImagePath()).append(" ");
+            }
+
+            // 미사일 데이터
+            synchronized (missiles) {
+                for (Missile missile : missiles) {
+                    int x = missile.getX();
+                    int y = missile.getY();
+
+                    // 미사일 좌표 대칭
+                    if (!missile.getOwnerId().equals(player.getId())) {
+                        x = ShootingGameServer.SERVER_WIDTH - x - ShootingGameServer.MISSILE_WIDTH;
+                        y = ShootingGameServer.SERVER_HEIGHT - y - ShootingGameServer.MISSILE_HEIGHT;
+                    }
+
+                    state.append("MISSILE ").append(missile.getOwnerId()).append(" ")
+                            .append(x).append(" ").append(y).append(" ");
+                }
+            }
+
+            // 장애물 데이터
+            for (Obstacle obstacle : obstacleManager.getObstacles()) {
+                int x = obstacle.getX();
+                int y = obstacle.getY();
+
+                // 현재 플레이어 기준으로 장애물 대칭
+                if (!player.getId().equals(players.keySet().iterator().next())) {
+                    x = ShootingGameServer.SERVER_WIDTH - x - obstacle.getWidth();
+                    y = ShootingGameServer.SERVER_HEIGHT - y - obstacle.getHeight();
+                }
+
+                state.append("OBSTACLE ").append(x).append(" ")
+                        .append(y).append(" ").append(obstacle.getWidth()).append(" ")
+                        .append(obstacle.getHeight()).append(" ").append(obstacle.isMovingRight()).append(" ");
+            }
+
+            // 클라이언트에 전송
+            PrintWriter out = player.getOut();
+            if (out != null) {
+                out.println(state.toString());
             }
         }
-        for (Obstacle obstacle : obstacleManager.getObstacles()) {
-            state.append("OBSTACLE ").append(obstacle.getX()).append(" ")
-                    .append(obstacle.getY()).append(" ")
-                    .append(obstacle.getWidth()).append(" ")
-                    .append(obstacle.getHeight()).append(" ");
-        }
-        players.values().forEach(player -> player.getOut().println(state.toString()));
+    }
+
+    private void startObstacleThreads() {
+        obstacleManager.startSpawnThread();
+        obstacleManager.startMoveThread();
     }
 }
 
 class ClientHandler extends Thread {
-    private static final int PLAYER_WIDTH = 90;
-    private static final int PLAYER_HEIGHT = 90;
-    private static final int MISSILE_WIDTH = 10;
-    private static final int MISSILE_HEIGHT = 30;
 
     private Socket socket;
     private PrintWriter out;
@@ -245,8 +292,9 @@ class ClientHandler extends Thread {
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             out = new PrintWriter(socket.getOutputStream(), true);
 
-            // 플레이어 생성
-            player = new Player(UUID.randomUUID().toString(), 180, 600, 100);
+            // ClientHandler 클래스 내부
+            player = new Player(UUID.randomUUID().toString(), 180, 600, 100,
+                    "images/spaceship" + (new Random().nextInt(5) + 2) + ".png"); // 무작위로 이미지 선택
             player.setOut(out);
 
             // 플레이어를 맵에 할당

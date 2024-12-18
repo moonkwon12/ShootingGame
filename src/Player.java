@@ -5,12 +5,14 @@ public class Player {
     private int x, y, health;
     private PrintWriter out;
     private MapInstance assignedMap; // 플레이어가 할당된 맵
+    private String imagePath; // 플레이어 이미지 경로
 
-    public Player(String id, int x, int y, int health) {
+    public Player(String id, int x, int y, int health, String imagePath) {
         this.id = id;
         this.x = x;
         this.y = y;
         this.health = health;
+        this.imagePath = imagePath;
     }
 
     public String getId() {
@@ -31,6 +33,10 @@ public class Player {
 
     public PrintWriter getOut() {
         return out;
+    }
+
+    public String getImagePath() {
+        return imagePath;
     }
 
     public void setOut(PrintWriter out) {

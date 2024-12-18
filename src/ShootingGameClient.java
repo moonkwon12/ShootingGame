@@ -159,7 +159,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     private void drawPlayer(Graphics g, Player player) {
         int x = player.getX();
         int y = player.getY();
-        Image image = player.getId().equals(clientId) ? player1Image : player2Image;
+        Image image = loadImage(player.getImagePath()); // 이미지 로드
 
         Graphics2D g2d = (Graphics2D) g.create();
 
@@ -210,25 +210,40 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
 
     private void drawObstacle(Graphics g, Obstacle obstacle) {
-        g.drawImage(obstacle.getImage(), obstacle.getX(), obstacle.getY(), obstacle.getWidth(), obstacle.getHeight(), this);
+        g.drawImage(obstacle.getImage(), obstacle.getX(), obstacle.getY(),
+                obstacle.getWidth(), obstacle.getHeight(), this);
     }
+
 
     public void actionPerformed(ActionEvent e) {
         if (gameOver || !isGameStarted) return; // 게임이 시작되지 않았거나 종료되었으면 움직임 제한
 
         int dx = 0, dy = 0;
-        if (keys[KeyEvent.VK_A]) dx -= 5;
-        if (keys[KeyEvent.VK_D]) dx += 5;
-        if (keys[KeyEvent.VK_W]) dy -= 5;
-        if (keys[KeyEvent.VK_S]) dy     += 5;
 
-        if (dx != 0 || dy != 0) {
-            Player player = players.get(clientId);
-            if (player != null) {
-                player.setPosition(player.getX() + dx, player.getY() + dy);
-                out.println("MOVE " + player.getX() + " " + player.getY());
-                repaint();
-            }
+        // 방향키 입력에 따른 이동 계산
+        if (keys[KeyEvent.VK_A]) dx -= 5; // 왼쪽
+        if (keys[KeyEvent.VK_D]) dx += 5; // 오른쪽
+        if (keys[KeyEvent.VK_W]) dy -= 5; // 위쪽
+        if (keys[KeyEvent.VK_S]) dy += 5; // 아래쪽
+
+        Player player = players.get(clientId);
+        if (player != null) {
+            int newX = player.getX() + dx;
+            int newY = player.getY() + dy;
+
+            // 화면 경계 조건
+            if (newX < 0) newX = 0; // 왼쪽 경계
+            if (newX + playerWidth > getWidth()) newX = getWidth() - playerWidth; // 오른쪽 경계
+            if (newY + playerHeight > getHeight()) newY = getHeight() - playerHeight; // 아래쪽 경계
+
+            // 화면 세로 절반 위로 이동 제한
+            int halfHeight = getHeight() / 2;
+            if (newY < halfHeight) newY = halfHeight; // 중앙선 위로 이동 제한
+
+            // 새로운 위치 설정 및 서버에 전송
+            player.setPosition(newX, newY);
+            out.println("MOVE " + newX + " " + newY);
+            repaint();
         }
     }
 
@@ -257,11 +272,11 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
             try {
                 String message;
                 while ((message = in.readLine()) != null) {
+                    System.out.println("Received message: " + message); // 디버그용 출력
                     String[] tokens = message.split(" ");
                     switch (tokens[0]) {
                         case "GAMESTART":
-                            isGameStarted = true; // 게임 시작
-                            System.out.println("Game started in map: " + currentMapId);
+                            isGameStarted = true;
                             repaint();
                             break;
                         case "SETTINGS":
@@ -316,54 +331,48 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         missiles.clear();
         obstacles.clear();
 
-        int screenWidth = getWidth();
-        int screenHeight = getHeight();
-
         int i = 1;
-        while (i < tokens.length) {
-            if (tokens[i].equals("PLAYER")) {
-                String id = tokens[i + 1];
-                int x = Integer.parseInt(tokens[i + 2]);
-                int y = Integer.parseInt(tokens[i + 3]);
-                int health = Integer.parseInt(tokens[i + 4]);
+        try {
+            while (i < tokens.length) {
+                if (tokens[i].equals("PLAYER")) {
+                    String id = tokens[i + 1];
+                    int x = Integer.parseInt(tokens[i + 2]);
+                    int y = Integer.parseInt(tokens[i + 3]);
+                    int health = Integer.parseInt(tokens[i + 4]);
+                    String imagePath = tokens[i + 5];
 
-                // 상대 플레이어 데이터 대칭 처리
-                if (!id.equals(clientId)) {
-                    x = screenWidth - x - playerWidth; // X 대칭
-                    y = screenHeight - y - playerHeight; // Y 대칭
+                    players.put(id, new Player(id, x, y, health, imagePath));
+                    i += 6;
+                } else if (tokens[i].equals("MISSILE")) {
+                    String ownerId = tokens[i + 1];
+                    int x = Integer.parseInt(tokens[i + 2]);
+                    int y = Integer.parseInt(tokens[i + 3]);
+
+                    missiles.add(new Missile(ownerId, x, y));
+                    i += 4;
+                } else if (tokens[i].equals("OBSTACLE")) {
+                    int x = Integer.parseInt(tokens[i + 1]);
+                    int y = Integer.parseInt(tokens[i + 2]);
+                    int width = Integer.parseInt(tokens[i + 3]);
+                    int height = Integer.parseInt(tokens[i + 4]);
+                    boolean movingRight = Boolean.parseBoolean(tokens[i + 5]);
+
+                    obstacles.add(new Obstacle(x, y, width, height, movingRight));
+                    i += 6;
+                } else {
+                    System.err.println("Unknown token type: " + tokens[i]);
+                    break;
                 }
-
-                players.put(id, new Player(id, x, y, health));
-                i += 5;
-            } else if (tokens[i].equals("MISSILE")) {
-                String ownerId = tokens[i + 1];
-                int x = Integer.parseInt(tokens[i + 2]);
-                int y = Integer.parseInt(tokens[i + 3]);
-
-                // 상대 미사일 데이터 대칭 처리
-                if (!ownerId.equals(clientId)) {
-                    x = screenWidth - x - missileWidth; // X 대칭
-                    y = screenHeight - y - missileHeight; // Y 대칭
-                }
-
-                missiles.add(new Missile(ownerId, x, y));
-                i += 4;
-            } else if (tokens[i].equals("OBSTACLE")) {
-                int x = Integer.parseInt(tokens[i + 1]);
-                int y = Integer.parseInt(tokens[i + 2]);
-                int width = Integer.parseInt(tokens[i + 3]);
-                int height = Integer.parseInt(tokens[i + 4]);
-                boolean movingRight = Boolean.parseBoolean(tokens[i + 5]);
-
-                obstacles.add(new Obstacle(x, y, width, height, movingRight));
-                i += 6;
-            } else {
-                break;
             }
+        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            System.err.println("Error parsing GAMESTATE: " + Arrays.toString(tokens));
+            e.printStackTrace();
         }
 
         repaint();
     }
+
+
 
     public static void main(String[] args) {
         JFrame frame = new JFrame("Shooting Game Client");
