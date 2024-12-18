@@ -66,14 +66,13 @@ class MapManager {
 
 // 맵 클래스
 class MapInstance {
-    private static final int SERVER_WIDTH = 500;
-    private static final int SERVER_HEIGHT = 770;
-    private static final int PLAYER_WIDTH = 90;
-    private static final int PLAYER_HEIGHT = 90;
+    private static final int PLAYER_COUNT_TO_START = 2; // 게임 시작에 필요한 플레이어 수
     private String mapId;
     private Map<String, Player> players = new ConcurrentHashMap<>();
     private List<Missile> missiles = Collections.synchronizedList(new ArrayList<>());
-    private ObstacleManager obstacleManager = new ObstacleManager(SERVER_WIDTH, SERVER_HEIGHT);
+    private ObstacleManager obstacleManager = new ObstacleManager(ShootingGameServer.SERVER_WIDTH, ShootingGameServer.SERVER_HEIGHT);
+
+    private boolean gameStarted = false; // 게임 시작 여부
 
     public MapInstance(String mapId) {
         this.mapId = mapId;
@@ -98,6 +97,25 @@ class MapInstance {
     public void addPlayer(Player player) {
         players.put(player.getId(), player);
         player.setAssignedMap(this);
+        checkAndStartGame(); // 플레이어 추가 후 게임 시작 조건 확인
+    }
+
+    private void checkAndStartGame() {
+        if (players.size() == PLAYER_COUNT_TO_START && !gameStarted) {
+            gameStarted = true;
+            broadcast("GAMESTART"); // 모든 플레이어에게 게임 시작 메시지 전송
+            System.out.println("Game started in map: " + mapId);
+        }
+    }
+
+    public void broadcast(String message) {
+        // 모든 플레이어에게 메시지를 전송
+        for (Player player : players.values()) {
+            PrintWriter out = player.getOut();
+            if (out != null) {
+                out.println(message); // 메시지를 전송
+            }
+        }
     }
 
     public void updateMissiles() {
@@ -114,32 +132,48 @@ class MapInstance {
     }
 
     public void checkCollisions() {
+        int serverWidth = ShootingGameServer.SERVER_WIDTH;
+        int serverHeight = ShootingGameServer.SERVER_HEIGHT;
+
         // 미사일과 플레이어 충돌 확인
         List<Missile> toRemoveMissiles = new ArrayList<>();
         synchronized (missiles) {
             for (Missile missile : missiles) {
                 for (Player player : players.values()) {
+                    // 자신이 쏜 미사일은 충돌 대상에서 제외
+                    if (missile.getOwnerId().equals(player.getId())) {
+                        continue;
+                    }
+
+                    int playerX = player.getX();
+                    int playerY = player.getY();
+
+                    // 미사일 소유자가 상대 플레이어의 경우, 대칭 좌표 계산
                     if (!missile.getOwnerId().equals(player.getId())) {
-                        if (missile.getX() >= player.getX() && missile.getX() <= player.getX() + PLAYER_WIDTH &&
-                                missile.getY() >= player.getY() && missile.getY() <= player.getY() + PLAYER_HEIGHT) {
-                            player.reduceHealth(10);
-                            toRemoveMissiles.add(missile);
-                            checkGameOver(player);
-                        }
+                        playerX = serverWidth - playerX - ShootingGameServer.PLAYER_WIDTH;
+                        playerY = serverHeight - playerY - ShootingGameServer.PLAYER_HEIGHT;
+                    }
+
+                    // 충돌 판정
+                    if (missile.getX() >= playerX && missile.getX() <= playerX + ShootingGameServer.PLAYER_WIDTH &&
+                            missile.getY() >= playerY && missile.getY() <= playerY + ShootingGameServer.PLAYER_HEIGHT) {
+                        player.reduceHealth(10); // 체력 감소
+                        toRemoveMissiles.add(missile); // 충돌한 미사일 제거
+                        checkGameOver(player); // 게임 종료 여부 확인
                     }
                 }
             }
-            missiles.removeAll(toRemoveMissiles);
+            missiles.removeAll(toRemoveMissiles); // 충돌한 미사일 제거
         }
 
-        // 장애물 충돌 확인
+        // 장애물 충돌 확인 (기존 코드 유지)
         List<Obstacle> toRemoveObstacles = new ArrayList<>();
         for (Obstacle obstacle : obstacleManager.getObstacles()) {
             for (Player player : players.values()) {
                 if (player.getX() < obstacle.getX() + obstacle.getWidth() &&
-                        player.getX() + PLAYER_WIDTH > obstacle.getX() &&
+                        player.getX() + ShootingGameServer.PLAYER_WIDTH > obstacle.getX() &&
                         player.getY() < obstacle.getY() + obstacle.getHeight() &&
-                        player.getY() + PLAYER_HEIGHT > obstacle.getY()) {
+                        player.getY() + ShootingGameServer.PLAYER_HEIGHT > obstacle.getY()) {
                     player.reduceHealth(10);
                     toRemoveObstacles.add(obstacle);
                     checkGameOver(player);
@@ -164,6 +198,8 @@ class MapInstance {
     }
 
     public void broadcastGameState() {
+        if (!gameStarted) return; // 게임 시작 전에는 상태를 전송하지 않음
+
         StringBuilder state = new StringBuilder("GAMESTATE ");
         for (Player player : players.values()) {
             state.append("PLAYER ").append(player.getId()).append(" ")
@@ -252,12 +288,18 @@ class ClientHandler extends Thread {
         }
     }
 
+    // ClientHandler 클래스 내부
     private void sendInitialSettings(PrintWriter out) {
         out.println("SETTINGS PLAYER_WIDTH " + ShootingGameServer.PLAYER_WIDTH +
                 " PLAYER_HEIGHT " + ShootingGameServer.PLAYER_HEIGHT +
                 " MISSILE_WIDTH " + ShootingGameServer.MISSILE_WIDTH +
-                " MISSILE_HEIGHT " + ShootingGameServer.MISSILE_HEIGHT);
+                " MISSILE_HEIGHT " + ShootingGameServer.MISSILE_HEIGHT +
+                " BACKGROUND_IMAGE images/back2.png" +  // 배경 이미지 경로
+                " PLAYER1_IMAGE images/spaceship5.png" +  // 플레이어 1 이미지 경로
+                " PLAYER2_IMAGE images/spaceship6.png" +  // 플레이어 2 이미지 경로
+                " MISSILE_IMAGE images/missile.png");     // 미사일 이미지 경로
     }
+
 
     private void handleMove(MapInstance map, int x, int y) {
         player.setPosition(x, y);
