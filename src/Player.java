@@ -4,6 +4,7 @@ public class Player {
     private String id;
     private int x, y, health;
     private PrintWriter out;
+    private MapInstance assignedMap; // 플레이어가 할당된 맵
 
     public Player(String id, int x, int y, int health) {
         this.id = id;
@@ -41,7 +42,6 @@ public class Player {
         this.y = y;
     }
 
-    // 추가: 체력을 감소시키는 메서드
     public void reduceHealth(int damage) {
         this.health -= damage;
         if (this.health < 0) {
@@ -49,7 +49,16 @@ public class Player {
         }
     }
 
-    public void setHealth(int i) {
-        this.health = i;
+    public void setHealth(int health) {
+        this.health = health;
+    }
+
+    // 새로 추가된 메서드
+    public MapInstance getAssignedMap() {
+        return assignedMap;
+    }
+
+    public void setAssignedMap(MapInstance assignedMap) {
+        this.assignedMap = assignedMap;
     }
 }
