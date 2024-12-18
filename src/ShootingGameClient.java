@@ -89,31 +89,135 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     }
 
     private void showMapSelection() {
-        mapSelectionPanel = new JPanel();
-        mapSelectionPanel.setLayout(new GridLayout(3, 1));
+        mapSelectionPanel = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                // 배경 이미지 설정
+                Image background = new ImageIcon("images/map_selection_background.png").getImage();
+                g.drawImage(background, 0, 0, getWidth(), getHeight(), this);
+            }
+        };
 
-        JLabel mapLabel = new JLabel("Select a Map:", JLabel.CENTER);
-        mapSelector = new JComboBox<>(new String[]{"Map1", "Map2", "Map3"});
+        mapSelectionPanel.setLayout(new BorderLayout());
+
+        // 제목 레이블
+        JLabel titleLabel = new JLabel("Select a Map", JLabel.CENTER);
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 32));
+        titleLabel.setForeground(Color.WHITE); // 텍스트 색상
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(20, 10, 20, 10));
+        mapSelectionPanel.add(titleLabel, BorderLayout.NORTH);
+
+        // 미리보기와 선택 영역
+        JPanel centerPanel = new JPanel();
+        centerPanel.setOpaque(false); // 배경 투명
+        centerPanel.setLayout(new BorderLayout());
+
+        // 미리보기 레이블
+        JLabel previewLabel = new JLabel("", JLabel.CENTER);
+        previewLabel.setPreferredSize(new Dimension(300, 200));
+        previewLabel.setBorder(BorderFactory.createLineBorder(Color.WHITE, 2));
+        previewLabel.setOpaque(true);
+        previewLabel.setBackground(Color.BLACK);
+
+        // 맵 선택 버튼 영역
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setOpaque(false);
+        buttonPanel.setLayout(new GridLayout(1, 3, 10, 10));
+
+        String[] maps = {"Map1", "Map2", "Map3"};
+        String[] mapPreviewPaths = {"images/map1_preview.png", "images/map2_preview.png", "images/map3_preview.png"};
+
+        // 선택된 맵 상태 저장 변수 및 초기값 설정
+        final String[] selectedMap = {"Map1"};
+        JButton[] mapButtons = new JButton[maps.length]; // 맵 버튼 배열
+
+        // 기본 미리보기 이미지 설정
+        previewLabel.setIcon(new ImageIcon(mapPreviewPaths[0]));
+
+        for (int i = 0; i < maps.length; i++) {
+            String map = maps[i];
+            String previewPath = mapPreviewPaths[i];
+
+            JButton mapButton = new JButton(map);
+            mapButton.setFont(new Font("Arial", Font.BOLD, 18));
+            mapButton.setBackground(new Color(50, 150, 250)); // 기본 색상
+            mapButton.setForeground(Color.WHITE);
+            mapButton.setFocusPainted(false);
+            mapButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+            mapButton.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+
+            // 초기 상태: MAP1 버튼 강조
+            if (map.equals("Map1")) {
+                mapButton.setBackground(new Color(255, 100, 100)); // 선택된 상태 색상
+                mapButton.setForeground(Color.BLACK); // 선택된 텍스트 색상
+            }
+
+            // 버튼 클릭 이벤트
+            mapButton.addActionListener(e -> {
+                // 선택된 맵 업데이트
+                selectedMap[0] = map;
+
+                // 미리보기 업데이트
+                ImageIcon previewIcon = new ImageIcon(previewPath);
+                previewLabel.setIcon(previewIcon);
+                previewLabel.setText("");
+                previewLabel.setBackground(null);
+
+                // Start 버튼 활성화
+                startButton.setEnabled(true);
+
+                // 선택된 버튼 강조
+                for (JButton btn : mapButtons) {
+                    btn.setBackground(new Color(50, 150, 250)); // 기본 상태로 되돌림
+                    btn.setForeground(Color.WHITE);
+                }
+                mapButton.setBackground(new Color(255, 100, 100)); // 선택된 버튼 강조 색상
+                mapButton.setForeground(Color.BLACK); // 텍스트 색상 변경
+            });
+
+            mapButtons[i] = mapButton;
+            buttonPanel.add(mapButton);
+        }
+
+        centerPanel.add(previewLabel, BorderLayout.CENTER);
+        centerPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        mapSelectionPanel.add(centerPanel, BorderLayout.CENTER);
+
+        // Start 버튼
         startButton = new JButton("Start");
+        startButton.setFont(new Font("Arial", Font.BOLD, 24));
+        startButton.setBackground(new Color(50, 200, 100));
+        startButton.setForeground(Color.WHITE);
+        startButton.setFocusPainted(false);
+        startButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        startButton.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
+        startButton.setEnabled(true); // 초기 상태에서는 Map1이 기본값이므로 활성화
 
         startButton.addActionListener(e -> {
-            String selectedMap = (String) mapSelector.getSelectedItem();
-            out.println("MAPSELECT " + selectedMap); // 맵 선택 전달
-            out.println("READY"); // 준비 상태 전달
+            if (selectedMap[0] != null) {
+                out.println("MAPSELECT " + selectedMap[0]); // 선택된 맵 전달
+                out.println("READY"); // 준비 상태 전달
 
-            // 화면 전환: 맵 선택 -> 게임 화면
-            cardLayout.show(mainFrame.getContentPane(), "GAME_SCREEN");
-            inGame = true;
+                // 화면 전환: 맵 선택 -> 게임 화면
+                cardLayout.show(mainFrame.getContentPane(), "GAME_SCREEN");
+                inGame = true;
 
-            // 게임 화면에 포커스 설정
-            setFocusable(true);
-            requestFocusInWindow();
+                // 게임 화면에 포커스 설정
+                setFocusable(true);
+                requestFocusInWindow();
+            }
         });
 
-        mapSelectionPanel.add(mapLabel);
-        mapSelectionPanel.add(mapSelector);
-        mapSelectionPanel.add(startButton);
+        JPanel bottomPanel = new JPanel();
+        bottomPanel.setOpaque(false);
+        bottomPanel.setBorder(BorderFactory.createEmptyBorder(20, 0, 20, 0));
+        bottomPanel.add(startButton);
 
+        mapSelectionPanel.add(bottomPanel, BorderLayout.SOUTH);
+
+        // 패널 추가
         mainFrame.add(mapSelectionPanel, "MAP_SELECTION");
         mainFrame.add(this, "GAME_SCREEN");
         mainFrame.setVisible(true);
@@ -160,7 +264,9 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                     playerImage = loadImage(playerImagePath);
                     break;
                 case "MISSILE_IMAGE":
-                    missileImage = scaleImage(loadImage(tokens[++i]), missileWidth, missileHeight);
+                    String missileImagePath = tokens[++i];
+                    missileImage = scaleImage(loadImage(missileImagePath), missileWidth, missileHeight);
+                    System.out.println("Missile image set to: " + missileImagePath);
                     break;
             }
         }
@@ -318,7 +424,18 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         // 화면 경계 조건
         if (newX < 0) newX = 0;
         if (newX + playerWidth > getWidth()) newX = getWidth() - playerWidth;
-        if (newY + playerHeight > getHeight()) newY = getHeight() - playerHeight;
+
+        // 세로 경계 조건: 플레이어는 화면 아래 절반에서만 움직일 수 있음
+        int screenHalfHeight = getHeight() / 2;
+        if (player.getId().equals(clientId)) {
+            // 플레이어 1: 화면 아래쪽 절반에서만 이동 가능
+            if (newY < screenHalfHeight) newY = screenHalfHeight;
+            if (newY + playerHeight > getHeight()) newY = getHeight() - playerHeight;
+        } else {
+            // 상대 플레이어: 화면 위쪽 절반에서만 이동 가능
+            if (newY < 0) newY = 0;
+            if (newY + playerHeight > screenHalfHeight) newY = screenHalfHeight - playerHeight;
+        }
 
         // 새로운 위치 설정 및 서버에 전송
         player.setPosition(newX, newY);
@@ -360,11 +477,10 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                             repaint();
                             break;
                         case "WAITING":
-                            JOptionPane.showMessageDialog(mainFrame, "Waiting for another player...");
                             break;
                         case "SETTINGS":
                             parseSettings(Arrays.copyOfRange(tokens, 1, tokens.length));
-                            updateScaledImages();
+//                            updateScaledImages();
                             break;
                         case "GAMESTATE":
                             parseGameState(tokens);
@@ -372,15 +488,24 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                         case "DEFEAT":
                             gameOver = true;
                             winner = "패배";
-                            repaint();
+                            JOptionPane.showMessageDialog(mainFrame, "You have been defeated!", "Game Over", JOptionPane.ERROR_MESSAGE);
+                            resetClient(); // 클라이언트 초기화
                             break;
+
                         case "VICTORY":
                             gameOver = true;
                             winner = "승리";
-                            repaint();
+                            JOptionPane.showMessageDialog(mainFrame, "Congratulations! You won!", "Victory", JOptionPane.INFORMATION_MESSAGE);
+                            resetClient(); // 클라이언트 초기화
                             break;
                         case "CONNECTED":
                             handleConnectedMessage(tokens);
+                            break;
+                        case "MAPFULL":
+                            JOptionPane.showMessageDialog(mainFrame,
+                                    "The selected map is full. Please choose another map.",
+                                    "Map Full", JOptionPane.WARNING_MESSAGE);
+                            resetClient(); // 초기화면으로 돌아가기
                             break;
                         default:
                             System.err.println("Unknown command: " + message);
@@ -389,6 +514,24 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
             } catch (IOException e) {
                 e.printStackTrace();
             }
+        }
+
+        private void resetClient() {
+            inGame = false; // 게임 상태 초기화
+            isGameStarted = false;
+            gameOver = false;
+
+            players.clear(); // 플레이어 정보 초기화
+            missiles.clear(); // 미사일 정보 초기화
+            obstacles.clear(); // 장애물 정보 초기화
+
+            clientId = null; // 클라이언트 ID 초기화
+            repaint(); // 화면 갱신
+
+            // 초기 화면으로 전환
+            SwingUtilities.invokeLater(() -> {
+                cardLayout.show(mainFrame.getContentPane(), "MAP_SELECTION");
+            });
         }
 
         private void handleConnectedMessage(String[] tokens) {

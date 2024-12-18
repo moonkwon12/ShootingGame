@@ -25,6 +25,7 @@ public class ObstacleManager {
         obstacles.clear(); // 기존 장애물 목록 초기화
     }
 
+
     // 장애물 생성 스레드
     public void startSpawnThread() {
         new Thread(() -> {

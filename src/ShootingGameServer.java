@@ -65,8 +65,16 @@ class MapManager {
             return new MapInstance(id);
         });
 
-        map.addPlayer(player);
-        System.out.println("Assigned player " + player.getId() + " to map: " + mapId);
+        // 기존에 동일한 ID의 플레이어가 있으면 삭제
+        map.getPlayers().remove(player.getId());
+
+        synchronized (map) {
+            if (!map.canAddPlayer()) {
+                throw new IllegalStateException("Map is full: " + mapId);
+            }
+
+            map.addPlayer(player);
+        }
 
         return map;
     }
@@ -74,9 +82,10 @@ class MapManager {
 
 // 맵 클래스
 class MapInstance {
-    private static final int PLAYER_COUNT_TO_START = 2; // 게임 시작에 필요한 플레이어 수
+    private static final int MAX_PLAYERS = 2; // 맵당 최대 플레이어 수
     private String mapId;
     private String backgroundImagePath; // 맵 배경 이미지 경로
+    private String missileImagePath; // 맵에 따른 미사일 이미지 경로
     private Map<String, Player> players = new ConcurrentHashMap<>();
     private List<Missile> missiles = Collections.synchronizedList(new ArrayList<>());
     private ObstacleManager obstacleManager;
@@ -90,15 +99,19 @@ class MapInstance {
         switch (mapId) {
             case "Map1":
                 this.backgroundImagePath = "images/back1.png";
+                this.missileImagePath = "images/saliva.png"; // 사막 테마 미사일
                 break;
             case "Map2":
                 this.backgroundImagePath = "images/back2.png";
+                this.missileImagePath = "images/missile.png"; // 우주 테마 미사일
                 break;
             case "Map3":
                 this.backgroundImagePath = "images/back3.png";
+                this.missileImagePath = "images/ink.png"; // 바다 테마 미사일
                 break;
             default:
                 this.backgroundImagePath = "images/back1.png"; // 기본 맵 설정
+                this.missileImagePath = "images/saliva.png"; // 사막 테마 미사일
                 System.err.println("Invalid mapId: " + mapId + ", defaulting to back1.png");
         }
 
@@ -114,6 +127,9 @@ class MapInstance {
         System.out.println("Game started in map: " + mapId);
     }
 
+    public String getMissileImagePath() {
+        return missileImagePath;
+    }
 
     public String getBackgroundImagePath() {
         return backgroundImagePath;
@@ -135,7 +151,14 @@ class MapInstance {
         return obstacleManager;
     }
 
-    public void addPlayer(Player player) {
+    public synchronized boolean canAddPlayer() {
+        return players.size() < MAX_PLAYERS; // 플레이어 수가 제한 이하인지 확인
+    }
+
+    public synchronized void addPlayer(Player player) {
+        if (players.size() >= MAX_PLAYERS) {
+            throw new IllegalStateException("Cannot add more players to the map: " + mapId);
+        }
         players.put(player.getId(), player);
         player.setAssignedMap(this);
 
@@ -244,17 +267,18 @@ class MapInstance {
         obstacleManager.getObstacles().removeAll(toRemoveObstacles);
     }
 
-    private void checkGameOver(Player player) {
+    public void checkGameOver(Player player) {
         if (player.getHealth() <= 0) {
             System.out.println(player.getId() + " defeated in map " + mapId);
-
-            // 패배자 알림
             player.getOut().println("DEFEAT");
 
-            // 승리자 알림
             players.values().stream()
                     .filter(p -> !p.getId().equals(player.getId()))
                     .forEach(winner -> winner.getOut().println("VICTORY"));
+
+            // 맵 객체 삭제
+            ShootingGameServer.mapManager.getMaps().remove(mapId);
+            System.out.println("Map " + mapId + " has been deleted.");
         }
     }
 
@@ -367,6 +391,24 @@ class ClientHandler extends Thread {
             // 클라이언트 종료 시 로그 출력
             if (player != null) {
                 System.out.println("Client disconnected: " + player.getId());
+
+                MapInstance map = player.getAssignedMap();
+                if (map != null) {
+                    map.getPlayers().remove(player.getId()); // 맵에서 플레이어 제거
+
+                    // 남아있는 플레이어가 있는 경우 승리 메시지 전송
+                    if (!map.getPlayers().isEmpty()) {
+                        Player remainingPlayer = map.getPlayers().values().iterator().next();
+                        PrintWriter out = remainingPlayer.getOut();
+                        if (out != null) {
+                            out.println("VICTORY"); // 승리 메시지 전송
+                        }
+                    }
+
+                    // 맵 객체 삭제
+                    ShootingGameServer.mapManager.getMaps().remove(map.getMapId());
+                    System.out.println("Map " + map.getMapId() + " has been deleted.");
+                }
             } else {
                 System.out.println("Client disconnected before map selection.");
             }
@@ -382,24 +424,42 @@ class ClientHandler extends Thread {
         selectedMapId = mapId; // 선택된 맵 ID 저장
 
         // 새로운 Player 객체 생성
-        String playerImagePath = "images/spaceship" + (new Random().nextInt(5) + 2) + ".png";
+        // 맵에 따른 플레이어 이미지 설정
+        String playerImagePath;
+        switch (mapId) {
+            case "Map1": // 사막
+                playerImagePath = "images/camel" + (new Random().nextInt(5) + 1)  +".png";
+                break;
+            case "Map2": // 우주
+                playerImagePath = "images/spaceship" + (new Random().nextInt(5) + 2) + ".png";
+                break;
+            case "Map3": // 바다
+                playerImagePath = "images/octopus" + (new Random().nextInt(9) + 1) +".png";
+                break;
+            default:
+                playerImagePath = "images/default_player.png"; // 기본 이미지
+                break;
+        }
+
         player = new Player(UUID.randomUUID().toString(), 180, 600, 100, playerImagePath);
         player.setOut(out);
 
-        // 맵에 플레이어 할당
-        MapInstance map = ShootingGameServer.mapManager.assignPlayerToMap(player, selectedMapId);
+        try {
+            MapInstance map = ShootingGameServer.mapManager.assignPlayerToMap(player, selectedMapId);
 
-        // SETTINGS 메시지 전송
-        out.println("SETTINGS " +
-                "PLAYER_WIDTH " + ShootingGameServer.PLAYER_WIDTH + " " +
-                "PLAYER_HEIGHT " + ShootingGameServer.PLAYER_HEIGHT + " " +
-                "MISSILE_WIDTH " + ShootingGameServer.MISSILE_WIDTH + " " +
-                "MISSILE_HEIGHT " + ShootingGameServer.MISSILE_HEIGHT + " " +
-                "BACKGROUND_IMAGE " + map.getBackgroundImagePath() + " " +
-                "PLAYER_IMAGE " + player.getImagePath());
+            out.println("SETTINGS " +
+                    "PLAYER_WIDTH " + ShootingGameServer.PLAYER_WIDTH + " " +
+                    "PLAYER_HEIGHT " + ShootingGameServer.PLAYER_HEIGHT + " " +
+                    "MISSILE_WIDTH " + ShootingGameServer.MISSILE_WIDTH + " " +
+                    "MISSILE_HEIGHT " + ShootingGameServer.MISSILE_HEIGHT + " " +
+                    "BACKGROUND_IMAGE " + map.getBackgroundImagePath() + " " +
+                    "PLAYER_IMAGE " + player.getImagePath() + " " +
+                    "MISSILE_IMAGE " + map.getMissileImagePath());
 
-        // 클라이언트에 CONNECTED 메시지 전송
-        out.println("CONNECTED " + player.getId());
+            out.println("CONNECTED " + player.getId());
+        } catch (IllegalStateException e) {
+            out.println("MAPFULL"); // 맵이 가득 찬 경우 클라이언트에 알림
+        }
     }
 
     private void handleReady() {
