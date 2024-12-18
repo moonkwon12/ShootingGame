@@ -54,20 +54,30 @@ class MapManager {
         return map;
     }
 
-    public MapInstance assignPlayerToMap(Player player) {
-        MapInstance map = maps.values().stream()
-                .filter(m -> m.getPlayers().size() < 2)
-                .findFirst()
-                .orElseGet(() -> createMap("Map" + (maps.size() + 1)));
+    public MapInstance assignPlayerToMap(Player player, String mapId) {
+        if (mapId == null) {
+            throw new IllegalArgumentException("Map ID cannot be null");
+        }
+
+        // 클라이언트에서 명시적으로 선택한 맵에만 할당
+        MapInstance map = maps.computeIfAbsent(mapId, id -> new MapInstance(id));
         map.addPlayer(player);
+
+        // 맵의 플레이어가 2명이 되면 게임 시작
+        if (map.getPlayers().size() == 2) {
+            map.broadcast("GAMESTART");
+        }
+
         return map;
     }
+
 }
 
 // 맵 클래스
 class MapInstance {
     private static final int PLAYER_COUNT_TO_START = 2; // 게임 시작에 필요한 플레이어 수
     private String mapId;
+    private String backgroundImagePath; // 맵 배경 이미지 경로
     private Map<String, Player> players = new ConcurrentHashMap<>();
     private List<Missile> missiles = Collections.synchronizedList(new ArrayList<>());
     private ObstacleManager obstacleManager;
@@ -76,8 +86,13 @@ class MapInstance {
 
     public MapInstance(String mapId) {
         this.mapId = mapId;
+        // 맵 ID에 따라 배경 이미지 설정
+        this.backgroundImagePath = "images/back" + mapId.charAt(mapId.length() - 1) + ".png"; // back1, back2, back3
         this.obstacleManager = new ObstacleManager(ShootingGameServer.SERVER_WIDTH, ShootingGameServer.SERVER_HEIGHT);
-        startObstacleThreads(); // 장애물 스레드 시작
+    }
+
+    public String getBackgroundImagePath() {
+        return backgroundImagePath;
     }
 
     public String getMapId() {
@@ -105,9 +120,20 @@ class MapInstance {
     private void checkAndStartGame() {
         if (players.size() == PLAYER_COUNT_TO_START && !gameStarted) {
             gameStarted = true;
+
+            // 장애물 스레드 시작
+            startObstacleThreads();
+
+            // 게임 시작 브로드캐스트
             broadcast("GAMESTART"); // 모든 플레이어에게 게임 시작 메시지 전송
             System.out.println("Game started in map: " + mapId);
         }
+    }
+
+    private void startObstacleThreads() {
+        obstacleManager.startSpawnThread();
+        obstacleManager.startMoveThread();
+        System.out.println("Obstacle threads started for map: " + mapId);
     }
 
     public void broadcast(String message) {
@@ -268,19 +294,14 @@ class MapInstance {
             }
         }
     }
-
-    private void startObstacleThreads() {
-        obstacleManager.startSpawnThread();
-        obstacleManager.startMoveThread();
-    }
 }
 
 class ClientHandler extends Thread {
-
     private Socket socket;
     private PrintWriter out;
     private BufferedReader in;
     private Player player;
+    private String selectedMapId;
 
     public ClientHandler(Socket socket) {
         this.socket = socket;
@@ -292,32 +313,43 @@ class ClientHandler extends Thread {
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             out = new PrintWriter(socket.getOutputStream(), true);
 
-            // ClientHandler 클래스 내부
-            player = new Player(UUID.randomUUID().toString(), 180, 600, 100,
-                    "images/spaceship" + (new Random().nextInt(5) + 2) + ".png"); // 무작위로 이미지 선택
+            // 플레이어 이미지 랜덤 지정
+            String playerImagePath = "images/spaceship" + (new Random().nextInt(5) + 2) + ".png";
+            player = new Player(UUID.randomUUID().toString(), 180, 600, 100, playerImagePath);
             player.setOut(out);
 
-            // 플레이어를 맵에 할당
-            MapInstance map = ShootingGameServer.mapManager.assignPlayerToMap(player);
+            // 선택된 맵이 없을 경우 기본 맵 설정
+            if (selectedMapId == null) {
+                selectedMapId = "Map1"; // 기본 맵 ID
+            }
 
-            // 클라이언트 연결 로그 출력
-            System.out.println("Client connected: " + player.getId() +
-                    " assigned to map: " + map.getMapId());
+            // 선택된 맵의 배경 이미지와 플레이어 이미지 전송
+            MapInstance map = ShootingGameServer.mapManager.assignPlayerToMap(player, selectedMapId);
+            out.println("SETTINGS " +
+                    "PLAYER_WIDTH " + ShootingGameServer.PLAYER_WIDTH + " " +
+                    "PLAYER_HEIGHT " + ShootingGameServer.PLAYER_HEIGHT + " " +
+                    "MISSILE_WIDTH " + ShootingGameServer.MISSILE_WIDTH + " " +
+                    "MISSILE_HEIGHT " + ShootingGameServer.MISSILE_HEIGHT + " " +
+                    "BACKGROUND_IMAGE " + map.getBackgroundImagePath() + " " +
+                    "PLAYER_IMAGE " + playerImagePath);
 
-            // 클라이언트에 연결 메시지 전송
-            out.println("CONNECTED " + player.getId() + " " + map.getMapId());
-            sendInitialSettings(out);
 
-            // 메시지 수신 및 처리
+            // 연결 메시지 전송 (맵 정보 없음)
+            out.println("CONNECTED " + player.getId());
+
+            // 클라이언트 요청 처리
             String message;
             while ((message = in.readLine()) != null) {
                 String[] tokens = message.split(" ");
                 switch (tokens[0]) {
+                    case "MAPSELECT":
+                        handleMapSelect(tokens[1]); // 맵 선택 처리
+                        break;
                     case "MOVE":
-                        handleMove(map, Integer.parseInt(tokens[1]), Integer.parseInt(tokens[2]));
+                        handleMove(Integer.parseInt(tokens[1]), Integer.parseInt(tokens[2]));
                         break;
                     case "MISSILE":
-                        handleMissile(map, Integer.parseInt(tokens[1]), Integer.parseInt(tokens[2]));
+                        handleMissile(Integer.parseInt(tokens[1]), Integer.parseInt(tokens[2]));
                         break;
                     default:
                         System.err.println("Unknown command: " + message);
@@ -336,26 +368,51 @@ class ClientHandler extends Thread {
         }
     }
 
-    // ClientHandler 클래스 내부
+    private void handleMapSelect(String mapId) {
+        selectedMapId = mapId; // 선택한 맵 ID 저장
+
+        // 플레이어를 맵에 할당
+        MapInstance map = ShootingGameServer.mapManager.assignPlayerToMap(player, selectedMapId);
+
+        // 맵에 플레이어가 대기 중인 경우
+        if (map.getPlayers().size() < 2) {
+            out.println("WAITING");
+        }
+
+        // 선택한 맵을 클라이언트에게 알림
+        out.println("MAPCONFIRM " + mapId);
+    }
+
     private void sendInitialSettings(PrintWriter out) {
         out.println("SETTINGS PLAYER_WIDTH " + ShootingGameServer.PLAYER_WIDTH +
                 " PLAYER_HEIGHT " + ShootingGameServer.PLAYER_HEIGHT +
                 " MISSILE_WIDTH " + ShootingGameServer.MISSILE_WIDTH +
                 " MISSILE_HEIGHT " + ShootingGameServer.MISSILE_HEIGHT +
-                " BACKGROUND_IMAGE images/back2.png" +  // 배경 이미지 경로
-                " PLAYER1_IMAGE images/spaceship5.png" +  // 플레이어 1 이미지 경로
-                " PLAYER2_IMAGE images/spaceship6.png" +  // 플레이어 2 이미지 경로
-                " MISSILE_IMAGE images/missile.png");     // 미사일 이미지 경로
+                " BACKGROUND_IMAGE images/back2.png" +
+                " PLAYER1_IMAGE images/spaceship5.png" +
+                " PLAYER2_IMAGE images/spaceship6.png" +
+                " MISSILE_IMAGE images/missile.png");
     }
 
-
-    private void handleMove(MapInstance map, int x, int y) {
-        player.setPosition(x, y);
-        map.broadcastGameState();
+    private void handleMove(int x, int y) {
+        // 현재 플레이어의 맵 정보 가져오기
+        MapInstance map = player.getAssignedMap();
+        if (map != null) {
+            player.setPosition(x, y); // 플레이어 위치 업데이트
+            map.broadcastGameState(); // 상태 전송
+        } else {
+            System.err.println("Player is not assigned to any map.");
+        }
     }
 
-    private void handleMissile(MapInstance map, int x, int y) {
-        map.getMissiles().add(new Missile(player.getId(), x, y));
-        map.broadcastGameState();
+    private void handleMissile(int x, int y) {
+        // 현재 플레이어의 맵 정보 가져오기
+        MapInstance map = player.getAssignedMap();
+        if (map != null) {
+            map.getMissiles().add(new Missile(player.getId(), x, y)); // 미사일 추가
+            map.broadcastGameState(); // 상태 전송
+        } else {
+            System.err.println("Player is not assigned to any map.");
+        }
     }
 }

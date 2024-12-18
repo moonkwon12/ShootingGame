@@ -24,19 +24,24 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     private String winner = "";
     private boolean spacePressed = false;
 
-    private Image backgroundImage, player1Image, player2Image, missileImage;
+    private Image backgroundImage, playerImage, missileImage;
 
     private String backgroundImagePath;
-    private String player1ImagePath;
-    private String player2ImagePath;
+    private String playerImagePath;
 
-    private int playerWidth;
-    private int playerHeight;
-    private int missileWidth;
-    private int missileHeight;
+    private int playerWidth = ShootingGameServer.PLAYER_WIDTH; // 기본값 설정
+    private int playerHeight = ShootingGameServer.PLAYER_HEIGHT;
+    private int missileWidth = ShootingGameServer.MISSILE_WIDTH;
+    private int missileHeight = ShootingGameServer.MISSILE_HEIGHT;
 
     private boolean isReady = false;
     private boolean isGameStarted = false;
+
+    private JFrame mainFrame; // 초기 화면 프레임
+    private JPanel mapSelectionPanel; // 맵 선택 패널
+    private JButton startButton;
+    private JComboBox<String> mapSelector; // 맵 선택 드롭다운
+    private boolean inGame = false; // 게임 중인지 여부
 
     public ShootingGameClient(String serverAddress, int port) {
         try {
@@ -47,16 +52,64 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
             // 서버 리스너 시작
             new Thread(new ServerListener()).start();
 
-            setFocusable(true);
-            addKeyListener(this);
-            setPreferredSize(new Dimension(500, 770));
+            // 메인 프레임 생성
+            createMainFrame();
 
-            timer = new javax.swing.Timer(15, this);
+            // 초기 맵 선택 화면 표시
+            showMapSelection();
+
+            // 키 리스너 등록 및 포커스 설정
+            setFocusable(true);
+            addKeyListener(this); // KeyListener 등록
+            requestFocusInWindow(); // 이 패널에 포커스 설정
+
+            // 타이머 시작
+            timer = new javax.swing.Timer(16, this); // 약 60FPS
             timer.start();
 
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private void createMainFrame() {
+        mainFrame = new JFrame("Shooting Game Client");
+        mainFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        mainFrame.setSize(500, 770);
+        mainFrame.setLocationRelativeTo(null);
+        mainFrame.setResizable(false);
+        mainFrame.setLayout(new CardLayout()); // 카드 레이아웃 사용
+    }
+
+    private void showMapSelection() {
+        mapSelectionPanel = new JPanel();
+        mapSelectionPanel.setLayout(new GridLayout(3, 1));
+
+        JLabel mapLabel = new JLabel("Select a Map:", JLabel.CENTER);
+        mapSelector = new JComboBox<>(new String[]{"Map1", "Map2", "Map3"});
+        startButton = new JButton("Start");
+
+        // 시작 버튼 클릭 이벤트
+        startButton.addActionListener(e -> {
+            String selectedMap = (String) mapSelector.getSelectedItem();
+            out.println("MAPSELECT " + selectedMap); // 서버로 선택한 맵 전달
+            inGame = true;
+
+            // 화면 전환: 맵 선택 -> 게임 화면
+            CardLayout cl = (CardLayout) mainFrame.getContentPane().getLayout();
+            cl.next(mainFrame.getContentPane());
+
+            setFocusable(true);
+            requestFocusInWindow();
+        });
+
+        mapSelectionPanel.add(mapLabel);
+        mapSelectionPanel.add(mapSelector);
+        mapSelectionPanel.add(startButton);
+
+        mainFrame.add(mapSelectionPanel, "MAP_SELECTION");
+        mainFrame.add(this, "GAME_SCREEN");
+        mainFrame.setVisible(true);
     }
 
     // 이미지 로드 메서드
@@ -87,13 +140,9 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                     backgroundImagePath = tokens[++i];
                     backgroundImage = loadImage(backgroundImagePath);
                     break;
-                case "PLAYER1_IMAGE":
-                    player1ImagePath = tokens[++i];
-                    player1Image = scaleImage(loadImage(player1ImagePath), playerWidth, playerHeight);
-                    break;
-                case "PLAYER2_IMAGE":
-                    player2ImagePath = tokens[++i];
-                    player2Image = scaleImage(loadImage(player2ImagePath), playerWidth, playerHeight);
+                case "PLAYER_IMAGE":
+                    playerImagePath = tokens[++i];
+                    playerImage = loadImage(playerImagePath);
                     break;
                 case "MISSILE_IMAGE":
                     missileImage = scaleImage(loadImage(tokens[++i]), missileWidth, missileHeight);
@@ -104,12 +153,19 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     }
 
     private void updateScaledImages() {
-        missileImage = scaleImage(loadImage("images/missile.png"), missileWidth, missileHeight);
+        System.out.println("Scaling missile image: Width = " + missileWidth + ", Height = " + missileHeight);
+        if (missileWidth > 0 && missileHeight > 0) {
+            missileImage = scaleImage(loadImage("images/missile.png"), missileWidth, missileHeight);
+        } else {
+            System.err.println("Invalid missile dimensions for scaling.");
+        }
     }
 
     @Override
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
+
+        if (!inGame) return; // 게임 시작 전에는 그리지 않음
 
         // 배경 그리기
         g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
@@ -272,12 +328,15 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
             try {
                 String message;
                 while ((message = in.readLine()) != null) {
-                    System.out.println("Received message: " + message); // 디버그용 출력
+//                    System.out.println("Received message: " + message); // 디버그용 출력
                     String[] tokens = message.split(" ");
                     switch (tokens[0]) {
                         case "GAMESTART":
                             isGameStarted = true;
                             repaint();
+                            break;
+                        case "WAITING":
+                            JOptionPane.showMessageDialog(mainFrame, "Waiting for another player...");
                             break;
                         case "SETTINGS":
                             parseSettings(Arrays.copyOfRange(tokens, 1, tokens.length));
@@ -377,12 +436,12 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     public static void main(String[] args) {
         JFrame frame = new JFrame("Shooting Game Client");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        ShootingGameClient client = new ShootingGameClient("localhost", 12345);
-        frame.add(client);
-        frame.pack();
-        frame.setLocationRelativeTo(null);
-        frame.setResizable(false);
-        frame.setVisible(true);
-        client.requestFocusInWindow();
+        new ShootingGameClient("localhost", 12345); // 클라이언트 초기화
+//        frame.add(client);
+//        frame.pack();
+//        frame.setLocationRelativeTo(null);
+//        frame.setResizable(false);
+//        frame.setVisible(true);
+//        client.requestFocusInWindow();
     }
 }
