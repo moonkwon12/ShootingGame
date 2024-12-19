@@ -7,13 +7,27 @@ public class Player {
     private MapInstance assignedMap; // 플레이어가 할당된 맵
     private String imagePath; // 플레이어 이미지 경로
     private boolean isReady = false; // 준비 상태 추가
-
+    private boolean doubleMissileEnabled = false; // 더블 미사일 상태 변수 추가
     public Player(String id, int x, int y, int health, String imagePath) {
         this.id = id;
         this.x = x;
         this.y = y;
         this.health = health;
         this.imagePath = imagePath;
+    }
+    // 더블 미사일 활성화
+    public void enableDoubleMissile() {
+        this.doubleMissileEnabled = true;
+    }
+
+    // 더블 미사일 비활성화
+    public void disableDoubleMissile() {
+        this.doubleMissileEnabled = false;
+    }
+
+    // 더블 미사일 상태 확인
+    public boolean isDoubleMissileEnabled() {
+        return doubleMissileEnabled;
     }
     public boolean isReady() {
         return isReady;
@@ -74,5 +88,9 @@ public class Player {
 
     public void setAssignedMap(MapInstance assignedMap) {
         this.assignedMap = assignedMap;
+    }
+
+    public void setDoubleMissileEnabled(boolean doubleMissileEnabled) {
+        this.doubleMissileEnabled = doubleMissileEnabled;
     }
 }

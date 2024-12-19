@@ -95,6 +95,8 @@
 
         private boolean gameOver = false;
 
+        private ItemManager itemManager;
+
         public MapInstance(String mapId) {
             this.mapId = mapId;
 
@@ -124,6 +126,9 @@
 
             this.obstacleManager = new ObstacleManager(ShootingGameServer.SERVER_WIDTH, ShootingGameServer.SERVER_HEIGHT);
             this.obstacleManager.setObstacleImagePath(obstacleImagePath); // 이미지 경로 설정
+
+            this.itemManager = new ItemManager(ShootingGameServer.SERVER_WIDTH, ShootingGameServer.SERVER_HEIGHT);
+
         }
 
         public boolean isGameOver() {
@@ -163,10 +168,6 @@
             return missiles;
         }
 
-        public ObstacleManager getObstacleManager() {
-            return obstacleManager;
-        }
-
         public synchronized boolean canAddPlayer() {
             return players.size() < MAX_PLAYERS; // 플레이어 수가 제한 이하인지 확인
         }
@@ -195,11 +196,9 @@
         private void startObstacleThreads() {
             obstacleManager.startSpawnThread();
             obstacleManager.startMoveThread();
+            itemManager.startSpawnThread();
+            itemManager.startMoveThread();
             System.out.println("Obstacle threads started for map: " + mapId);
-        }
-
-        public boolean isGameStarted() {
-            return gameStarted;
         }
 
         public void broadcast(String message) {
@@ -225,7 +224,28 @@
             }
         }
 
+        private void applyItemEffect(Player player, Item item) {
+            System.out.println("Applying effect of item type: " + item.getType());
+
+            if ("DOUBLE_MISSILE".equals(item.getType())) {
+                player.enableDoubleMissile();
+                System.out.println("Double missile enabled for player: " + player.getId());
+
+                new Timer().schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        player.disableDoubleMissile();
+                        System.out.println("Double missile disabled for player: " + player.getId());
+                    }
+                }, 10000);
+            } else {
+                System.out.println("Unknown item type: " + item.getType());
+            }
+        }
+
         public void checkCollisions() {
+            if (gameOver) return; // 게임 종료 시 충돌 판정 중지
+
             List<Missile> toRemoveMissiles = new ArrayList<>();
             synchronized (missiles) {
                 for (Missile missile : missiles) {
@@ -281,6 +301,31 @@
                 }
             }
             obstacleManager.getObstacles().removeAll(toRemoveObstacles);
+
+            // 아이템과 플레이어 충돌 확인
+            List<Item> toRemoveItems = new ArrayList<>();
+            for (Player player : players.values()) {
+                for (Item item : itemManager.getItems()) {
+                    int itemX = item.getX();
+                    int itemY = item.getY();
+
+                    // 상대 플레이어의 대칭 좌표 계산
+                    if (!player.getId().equals(players.keySet().iterator().next())) {
+                        itemX = ShootingGameServer.SERVER_WIDTH - itemX - item.getWidth();
+                        itemY = ShootingGameServer.SERVER_HEIGHT - itemY - item.getHeight();
+                    }
+
+                    // 충돌 판정
+                    if (player.getX() < itemX + item.getWidth() &&
+                            player.getX() + ShootingGameServer.PLAYER_WIDTH > itemX &&
+                            player.getY() < itemY + item.getHeight() &&
+                            player.getY() + ShootingGameServer.PLAYER_HEIGHT > itemY) {
+                        applyItemEffect(player, item); // 아이템 효과 적용
+                        toRemoveItems.add(item); // 충돌한 아이템 제거
+                    }
+                }
+            }
+            itemManager.getItems().removeAll(toRemoveItems);
         }
 
         public void checkGameOver(Player player) {
@@ -320,7 +365,8 @@
                     state.append("PLAYER ").append(otherPlayer.getId()).append(" ")
                             .append(x).append(" ").append(y).append(" ")
                             .append(otherPlayer.getHealth()).append(" ")
-                            .append(otherPlayer.getImagePath()).append(" ");
+                            .append(otherPlayer.getImagePath()).append(" ")
+                            .append(otherPlayer.isDoubleMissileEnabled()).append(" ");
                 }
 
                 // 미사일 데이터
@@ -354,6 +400,22 @@
                     state.append("OBSTACLE ").append(x).append(" ")
                             .append(y).append(" ").append(obstacle.getWidth()).append(" ")
                             .append(obstacle.getHeight()).append(" ").append(obstacle.isMovingRight()).append(" ").append(obstacle.getImagePath())      .append(" ");
+                }
+
+                // 아이템 데이터
+                for (Item item : itemManager.getItems()) {
+                    int x = item.getX();
+                    int y = item.getY();
+
+                    // 대칭 처리
+                    if (!player.getId().equals(players.keySet().iterator().next())) {
+                        x = ShootingGameServer.SERVER_WIDTH - x - item.getWidth();
+                        y = ShootingGameServer.SERVER_HEIGHT - y - item.getHeight();
+                    }
+
+                    state.append("ITEM ").append(x).append(" ").append(y).append(" ")
+                            .append(item.getWidth()).append(" ").append(item.getHeight()).append(" ")
+                            .append(item.getType()).append(" ").append(item.isMovingRight()).append(" ");
                 }
 
                 // 클라이언트에 전송

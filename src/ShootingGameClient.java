@@ -20,6 +20,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     private Map<String, Player> players = new ConcurrentHashMap<>();
     private List<Missile> missiles = new CopyOnWriteArrayList<>();
     private List<Obstacle> obstacles = new CopyOnWriteArrayList<>();
+    private List<Item> items = new CopyOnWriteArrayList<>();
 
     private boolean[] keys = new boolean[256];
     private boolean gameOver = false;
@@ -50,6 +51,9 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     private long lastMissileFiredTime = 0; // 마지막 미사일 발사 시간
 
     public ShootingGameClient(String serverAddress, int port) {
+        // 더블 버퍼링 활성화
+        setDoubleBuffered(true);
+
         try {
             socket = new Socket(serverAddress, port);
             out = new PrintWriter(socket.getOutputStream(), true);
@@ -274,15 +278,6 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         repaint();
     }
 
-    private void updateScaledImages() {
-        System.out.println("Scaling missile image: Width = " + missileWidth + ", Height = " + missileHeight);
-        if (missileWidth > 0 && missileHeight > 0) {
-            missileImage = scaleImage(loadImage("images/missile.png"), missileWidth, missileHeight);
-        } else {
-            System.err.println("Invalid missile dimensions for scaling.");
-        }
-    }
-
     @Override
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -334,6 +329,13 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
             // 장애물 그리기
             for (Obstacle obstacle : obstacles) {
                 drawObstacle(g, obstacle);
+            }
+        }
+
+        // 아이템 그리기
+        synchronized (items) {
+            for (Item item : items) {
+                drawItem(g, item); // 여기에서 drawItem 호출
             }
         }
     }
@@ -401,6 +403,17 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 obstacle.getWidth(), obstacle.getHeight(), this);
     }
 
+    private void drawItem(Graphics g, Item item) {
+        if (item.getImage() == null) {
+            System.err.println("Item image is null for item at: " + item.getX() + ", " + item.getY());
+            return;
+        }
+
+        g.drawImage(item.getImage(), item.getX(), item.getY(),
+                item.getWidth(), item.getHeight(), this);
+    }
+
+
     public void actionPerformed(ActionEvent e) {
         if (gameOver || !isGameStarted) return;
 
@@ -461,7 +474,12 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
                 Player player = players.get(clientId);
                 if (player != null) {
-                    out.println("MISSILE " + (player.getX() + 40) + " " + (player.getY() - 20));
+                    if (player.isDoubleMissileEnabled()) {
+                        out.println("MISSILE " + (player.getX() + 20) + " " + (player.getY() - 20));
+                        out.println("MISSILE " + (player.getX() + 60) + " " + (player.getY() - 20));
+                    } else {
+                        out.println("MISSILE " + (player.getX() + 40) + " " + (player.getY() - 20));
+                    }
                 }
             } else {
                 System.out.println("Missile cooldown active. Wait before firing again.");
@@ -635,6 +653,9 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         synchronized (obstacles) {
             obstacles.clear();
         }
+        synchronized (items) {
+            items.clear();
+        }
 
         int i = 1;
         try {
@@ -645,11 +666,14 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                     int y = Integer.parseInt(tokens[i + 3]);
                     int health = Integer.parseInt(tokens[i + 4]);
                     String imagePath = tokens[i + 5];
+                    boolean doubleMissileEnabled = Boolean.parseBoolean(tokens[i + 6]); // 상태 추가
 
                     synchronized (players) {
-                        players.put(id, new Player(id, x, y, health, imagePath));
+                        Player player = new Player(id, x, y, health, imagePath);
+                        player.setDoubleMissileEnabled(doubleMissileEnabled); // 상태 업데이트
+                        players.put(id, player);
                     }
-                    i += 6;
+                    i += 7; // 플레이어 데이터 길이 반영
                 } else if (tokens[i].equals("MISSILE")) {
                     String ownerId = tokens[i + 1];
                     int x = Integer.parseInt(tokens[i + 2]);
@@ -671,6 +695,18 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                         Obstacle obstacle = new Obstacle(x, y, width, height, movingRight);
                         obstacle.setImagePath(imagePath); // 이미지 경로 설정
                         obstacles.add(obstacle);
+                    }
+                    i += 7;
+                } else if (tokens[i].equals("ITEM")) {
+                    int x = Integer.parseInt(tokens[i + 1]);
+                    int y = Integer.parseInt(tokens[i + 2]);
+                    int width = Integer.parseInt(tokens[i + 3]);
+                    int height = Integer.parseInt(tokens[i + 4]);
+                    String type = tokens[i + 5];
+                    boolean movingRight = Boolean.parseBoolean(tokens[i + 6]);
+
+                    synchronized (items) {
+                        items.add(new Item(x, y, width, height, type, movingRight));
                     }
                     i += 7;
                 } else {
