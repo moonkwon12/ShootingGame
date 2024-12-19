@@ -6,10 +6,15 @@ public class ObstacleManager {
     private final int serverWidth;
     private final int serverHeight;
     private boolean running = true; // 스레드 종료 플래그
+    private String obstacleImagePath; // 맵별 장애물 이미지 경로
 
     public ObstacleManager(int serverWidth, int serverHeight) {
         this.serverWidth = serverWidth;
         this.serverHeight = serverHeight;
+    }
+
+    public void setObstacleImagePath(String obstacleImagePath) {
+        this.obstacleImagePath = obstacleImagePath;
     }
 
     public List<Obstacle> getObstacles() {
@@ -30,15 +35,13 @@ public class ObstacleManager {
     public void startSpawnThread() {
         new Thread(() -> {
             Random random = new Random();
-            while (running) {
+            while (true) { // 임의의 조건으로 루프
                 try {
-                    if (obstacles.size() < 10) { // 최대 장애물 수 제한
-                        spawnObstacle(random);
-                    }
-                    Thread.sleep(2000); // 2초마다 새로운 장애물 생성
+                    // 장애물 생성
+                    spawnObstacle(random);
+                    Thread.sleep(2000); // 2초마다 생성
                 } catch (InterruptedException e) {
                     e.printStackTrace();
-                    Thread.currentThread().interrupt(); // 스레드 상태 복구
                 }
             }
         }).start();
@@ -60,15 +63,14 @@ public class ObstacleManager {
     }
 
     private void spawnObstacle(Random random) {
-        int x;
-        if (random.nextBoolean()) {
-            x = 0; // 왼쪽 끝
-        } else {
-            x = serverWidth - 50; // 오른쪽 끝 (장애물의 가로 크기 고려)
-        }
-        int y = random.nextInt(serverHeight); // Y 좌표는 랜덤
-        boolean moveRight = (x == 0); // 왼쪽에서 생성되면 오른쪽으로 이동, 오른쪽에서 생성되면 왼쪽으로 이동
-        obstacles.add(new Obstacle(x, y, 50, 50, moveRight));
+        int x = random.nextBoolean() ? 0 : serverWidth - 50; // 좌우 랜덤
+        int y = random.nextInt(serverHeight); // y 위치 랜덤
+        boolean moveRight = x == 0; // 이동 방향 결정
+
+        // 장애물 생성 및 이미지 설정
+        Obstacle obstacle = new Obstacle(x, y, 50, 50, moveRight);
+        obstacle.setImagePath(obstacleImagePath); // 맵의 이미지 경로 사용
+        obstacles.add(obstacle); // 장애물을 리스트에 추가
     }
 
     private void updateObstacles() {

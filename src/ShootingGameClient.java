@@ -392,6 +392,10 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
 
     private void drawObstacle(Graphics g, Obstacle obstacle) {
+        if (obstacle.getImage() == null) {
+            System.err.println("Obstacle image is null for obstacle at: " + obstacle.getX() + ", " + obstacle.getY());
+            return;
+        }
         g.drawImage(obstacle.getImage(), obstacle.getX(), obstacle.getY(),
                 obstacle.getWidth(), obstacle.getHeight(), this);
     }
@@ -439,7 +443,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
         // 새로운 위치 설정 및 서버에 전송
         player.setPosition(newX, newY);
-        System.out.println("Sending MOVE: " + newX + ", " + newY); // 디버깅 출력
+//        System.out.println("Sending MOVE: " + newX + ", " + newY); // 디버깅 출력
         out.println("MOVE " + newX + " " + newY);
         repaint();
     }
@@ -488,14 +492,14 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                         case "DEFEAT":
                             gameOver = true;
                             winner = "패배";
-                            JOptionPane.showMessageDialog(mainFrame, "You have been defeated!", "Game Over", JOptionPane.ERROR_MESSAGE);
+                            showCustomDialog("Game Over", "You have been defeated!", false);
                             resetClient(); // 클라이언트 초기화
                             break;
 
                         case "VICTORY":
                             gameOver = true;
                             winner = "승리";
-                            JOptionPane.showMessageDialog(mainFrame, "Congratulations! You won!", "Victory", JOptionPane.INFORMATION_MESSAGE);
+                            showCustomDialog("Victory", "Congratulations! You won!", true);
                             resetClient(); // 클라이언트 초기화
                             break;
                         case "CONNECTED":
@@ -549,6 +553,65 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 timerStarted = true;
             }
         }
+        private void showCustomDialog(String title, String message, boolean isVictory) {
+            JDialog dialog = new JDialog(mainFrame, title, true);
+            dialog.setSize(400, 400);
+            dialog.setLocationRelativeTo(mainFrame);
+            dialog.setLayout(new BorderLayout());
+
+            // 상단 메시지 패널
+            JPanel messagePanel = new JPanel();
+            messagePanel.setBackground(Color.WHITE); // 배경 흰색
+            messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
+            messagePanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+
+            JLabel titleLabel = new JLabel(isVictory ? "Victory!" : "Defeat", JLabel.CENTER);
+            titleLabel.setFont(new Font("Arial", Font.BOLD, 32));
+            titleLabel.setForeground(Color.BLACK); // 글씨 검은색
+
+            JLabel messageLabel = new JLabel(message, JLabel.CENTER);
+            messageLabel.setFont(new Font("Arial", Font.PLAIN, 18));
+            messageLabel.setForeground(Color.BLACK); // 글씨 검은색
+
+            messagePanel.add(titleLabel);
+            messagePanel.add(Box.createVerticalStrut(10)); // 간격
+            messagePanel.add(messageLabel);
+
+            // 하단 배경 및 버튼 패널
+            JPanel backgroundPanel = new JPanel() {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    // 승리와 패배에 따른 배경 이미지 설정
+                    String bgImagePath = isVictory ? "images/victory_bg.png" : "images/defeat_bg.png";
+                    Image bgImage = new ImageIcon(bgImagePath).getImage();
+                    g.drawImage(bgImage, 0, 0, getWidth(), getHeight(), this);
+                }
+            };
+            backgroundPanel.setLayout(new BorderLayout());
+
+            // 버튼 패널
+            JPanel buttonPanel = new JPanel();
+            buttonPanel.setOpaque(false); // 배경 투명
+            JButton okButton = new JButton("OK");
+            okButton.setFont(new Font("Arial", Font.BOLD, 18));
+            okButton.setBackground(new Color(50, 200, 100)); // 녹색 버튼
+            okButton.setForeground(Color.WHITE);
+            okButton.setFocusPainted(false);
+            okButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+            okButton.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
+            okButton.addActionListener(e -> dialog.dispose());
+            buttonPanel.add(okButton);
+
+            backgroundPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+            // 다이얼로그 레이아웃에 추가
+            dialog.add(messagePanel, BorderLayout.NORTH); // 상단에 메시지
+            dialog.add(backgroundPanel, BorderLayout.CENTER); // 하단에 배경 및 버튼
+            dialog.setUndecorated(true); // 기본 윈도우 테두리 제거
+            dialog.setVisible(true);
+        }
+
     }
 
     public void parseGameState(String[] tokens) {
@@ -591,11 +654,14 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                     int width = Integer.parseInt(tokens[i + 3]);
                     int height = Integer.parseInt(tokens[i + 4]);
                     boolean movingRight = Boolean.parseBoolean(tokens[i + 5]);
+                    String imagePath = tokens[i + 6]; // 이미지 경로 추가
 
                     synchronized (obstacles) {
-                        obstacles.add(new Obstacle(x, y, width, height, movingRight));
+                        Obstacle obstacle = new Obstacle(x, y, width, height, movingRight);
+                        obstacle.setImagePath(imagePath); // 이미지 경로 설정
+                        obstacles.add(obstacle);
                     }
-                    i += 6;
+                    i += 7;
                 } else {
                     System.err.println("Unknown token type: " + tokens[i]);
                     break;
