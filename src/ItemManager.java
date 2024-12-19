@@ -26,8 +26,8 @@ public class ItemManager {
             Random random = new Random();
             while (running) {
                 try {
-                    spawnItem(random);
                     Thread.sleep(10000); // 10초마다 생성
+                    spawnItem(random);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
