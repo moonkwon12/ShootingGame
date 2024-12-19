@@ -47,6 +47,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     private CardLayout cardLayout; // CardLayout 참조 변수 추가
 
     private boolean timerStarted = false;
+    private long lastMissileFiredTime = 0; // 마지막 미사일 발사 시간
 
     public ShootingGameClient(String serverAddress, int port) {
         try {
@@ -450,17 +451,27 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
     public void keyPressed(KeyEvent e) {
         keys[e.getKeyCode()] = true;
+
         if (e.getKeyCode() == KeyEvent.VK_SPACE && !spacePressed) {
             spacePressed = true;
-            Player player = players.get(clientId);
-            if (player != null) {
-                out.println("MISSILE " + (player.getX() + 40) + " " + (player.getY() - 20));
+
+            long currentTime = System.currentTimeMillis(); // 현재 시간
+            if (currentTime - lastMissileFiredTime >= 1000) { // 1초(1000ms)가 지났는지 확인
+                lastMissileFiredTime = currentTime; // 마지막 발사 시간 업데이트
+
+                Player player = players.get(clientId);
+                if (player != null) {
+                    out.println("MISSILE " + (player.getX() + 40) + " " + (player.getY() - 20));
+                }
+            } else {
+                System.out.println("Missile cooldown active. Wait before firing again.");
             }
         }
     }
 
     public void keyReleased(KeyEvent e) {
         keys[e.getKeyCode()] = false;
+
         if (e.getKeyCode() == KeyEvent.VK_SPACE) {
             spacePressed = false;
         }
