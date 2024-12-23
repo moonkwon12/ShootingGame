@@ -50,6 +50,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
     private boolean timerStarted = false;
     private long lastMissileFiredTime = 0; // 마지막 미사일 발사 시간
 
+    //클라이언트 초기 설정
     public ShootingGameClient(String serverAddress, int port) {
         // 더블 버퍼링 활성화
         setDoubleBuffered(true);
@@ -82,6 +83,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         }
     }
 
+    // 메인 프레임 생성
     private void createMainFrame() {
         mainFrame = new JFrame("Shooting Game Client");
         mainFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -93,6 +95,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         mainFrame.setLayout(cardLayout); // CardLayout을 JFrame에 설정
     }
 
+    // 홈 화면에서 맵 생성할 수 있도록
     private void showMapSelection() {
         mapSelectionPanel = new JPanel() {
             @Override
@@ -228,6 +231,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         mainFrame.setVisible(true);
     }
 
+    // 받은 이미지 경로로 이미지 로드
     private Image loadImage(String path) {
         try {
             Image img = new ImageIcon(path).getImage();
@@ -240,10 +244,12 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         }
     }
 
+    // 이미지 크기 맞추기
     private Image scaleImage(Image srcImg, int width, int height) {
         return srcImg.getScaledInstance(width, height, Image.SCALE_SMOOTH);
     }
 
+    // 맵 선택시 플레이어, 미사일 , 배경 설정
     private void parseSettings(String[] tokens) {
         for (int i = 0; i < tokens.length; i++) {
             switch (tokens[i]) {
@@ -278,6 +284,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         repaint();
     }
 
+    // 플레이어, 이미지, 장애물, 아이템 등 움직이는 모든 것을 그려주는 메서드
     @Override
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -340,7 +347,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         }
     }
 
-
+    //플레이어 그리기
     private void drawPlayer(Graphics g, Player player) {
         int x = player.getX();
         int y = player.getY();
@@ -374,6 +381,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         g.drawString("HP: " + player.getHealth(), healthBarX + 5, healthBarY - 2);
     }
 
+    // 미사일 그리기
     private void drawMissile(Graphics g, Missile missile) {
         int x = missile.getX();
         int y = missile.getY();
@@ -393,7 +401,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         g2d.dispose(); // 리소스 정리
     }
 
-
+    // 장애물 그리기
     private void drawObstacle(Graphics g, Obstacle obstacle) {
         if (obstacle.getImage() == null) {
             System.err.println("Obstacle image is null for obstacle at: " + obstacle.getX() + ", " + obstacle.getY());
@@ -403,6 +411,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 obstacle.getWidth(), obstacle.getHeight(), this);
     }
 
+    // 아이템 그리기
     private void drawItem(Graphics g, Item item) {
         if (item.getImage() == null) {
             System.err.println("Item image is null for item at: " + item.getX() + ", " + item.getY());
@@ -413,7 +422,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 item.getWidth(), item.getHeight(), this);
     }
 
-
+    // 플레이어의 움직임 관리
     public void actionPerformed(ActionEvent e) {
         if (gameOver || !isGameStarted) return;
 
@@ -462,6 +471,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         repaint();
     }
 
+    // 사용자의 미사일 발사 처리
     public void keyPressed(KeyEvent e) {
         keys[e.getKeyCode()] = true;
 
@@ -487,6 +497,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         }
     }
 
+    // 키를 누르고 있으면 미사일 발사가 안되도록
     public void keyReleased(KeyEvent e) {
         keys[e.getKeyCode()] = false;
 
@@ -497,7 +508,10 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
     public void keyTyped(KeyEvent e) {}
 
+    // 서버에서 받는 내용들을 처리
     private class ServerListener implements Runnable {
+
+        // 지속적으로 서버에서 메시지 수신
         public void run() {
             try {
                 String message;
@@ -549,6 +563,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
             }
         }
 
+        // 사용자 초기화
         private void resetClient() {
             inGame = false; // 게임 상태 초기화
             isGameStarted = false;
@@ -567,6 +582,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
             });
         }
 
+        // 서버와 연결 되었을 때 수행
         private void handleConnectedMessage(String[] tokens) {
             if (tokens.length < 2) {
                 System.err.println("Invalid CONNECTED message: " + Arrays.toString(tokens));
@@ -582,6 +598,8 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
                 timerStarted = true;
             }
         }
+
+        // 게임 종료시 승리, 패배 표시 다이얼로그 로직
         private void showCustomDialog(String title, String message, boolean isVictory) {
             JDialog dialog = new JDialog(mainFrame, title, true);
             dialog.setSize(400, 400);
@@ -643,6 +661,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
 
     }
 
+    // 서버에게서 게임 상태를 지속적으로 반영
     public void parseGameState(String[] tokens) {
         synchronized (players) {
             players.clear();
@@ -727,6 +746,7 @@ public class ShootingGameClient extends JPanel implements ActionListener, KeyLis
         repaint();
     }
 
+    // 클라이언트 서버 실행 메인
     public static void main(String[] args) {
         JFrame frame = new JFrame("Shooting Game Client");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
