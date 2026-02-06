@@ -55,6 +55,14 @@ ShootingGame/
  ┗ 📄 IDE 설정 파일
 ```
 
+## 🎥 Demo Video
+
+[![Shooting Game Demo](https://img.youtube.com/vi/3tBoBJ7492g/0.jpg)](https://youtu.be/3tBoBJ7492g)
+
+▶️ 클릭 시 실제 플레이 시연 영상이 재생됩니다.
+
+---
+
 ## 🎯 주요 기능
 
 ### 🗺 맵 선택 화면
